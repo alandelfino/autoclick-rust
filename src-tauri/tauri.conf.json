@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Hello World",
+        "title": "Create amazing automations in you desktop",
         "width": 800,
         "height": 600,
         "maximized": true

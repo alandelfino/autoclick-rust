@@ -1,13 +1,38 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+
+@layer base {
+    @import "@xyflow/react/dist/style.css";
+}
+
+/* 1. Define the font file path */
+@font-face {
+    font-family: "Inter";
+    src: url("./assets/fonts/Inter/Inter-VariableFont_opsz,wght.ttf") format("truetype");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Inter";
+    src: url("./assets/fonts/Inter/Inter-Italic-VariableFont_opsz,wght.ttf") format("truetype");
+    font-weight: 100 900;
+    font-style: italic;
+    font-display: swap;
+}
+
+/* 2. Map the font utility name inside the @theme directive */
+@theme {
+    --font-custom: "Inter", sans-serif;
+}
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-sans: 'Inter', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,6 +74,10 @@
 }
 
 :root {
+    --container-width: 1200px;
+    --scrollbar-track: oklch(0.97 0 0);
+    --scrollbar-thumb: oklch(0.91 0 0);
+    --scrollbar-thumb-hover: oklch(74.443% 0.00008 271.152);
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -117,14 +146,50 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+@layer utilities {
+
+    /* Custom scrollbar utility */
+    *::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+
+    *::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+        /* Slate 100 */
+        border-radius: 10px;
+    }
+
+    *::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        /* Slate 300 */
+        border-radius: 10px;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+        background: var(--scrollbar-thumb-hover);
+        /* Slate 400 */
+    }
+}
+
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+    * {
+        @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
+
+    body {
+        @apply bg-background text-foreground;
     }
-  html {
-    @apply font-sans;
+
+    html {
+        @apply font-sans;
+    }
+
+    .max-w-container {
+        max-width: var(--container-width);
+    }
+    
+    .react-flow__panel.react-flow__attribution.bottom.right {
+        left: 0;
     }
 }
