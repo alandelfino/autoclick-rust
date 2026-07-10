@@ -192,4 +192,29 @@
     .react-flow__panel.react-flow__attribution.bottom.right {
         left: 0;
     }
+
+    .flow-canvas .react-flow__pane {
+        cursor: default;
+    }
+
+    .flow-canvas.flow-canvas--ctrl .react-flow__pane {
+        cursor: grab;
+    }
+
+    .flow-canvas.flow-canvas--ctrl .react-flow__pane:active {
+        cursor: grabbing;
+    }
+
+    .flow-canvas .react-flow__node {
+        cursor: pointer;
+    }
+
+    .flow-canvas .react-flow__node.selected [data-slot="card"] {
+        @apply ring-4 ring-sky-200;
+        border-color: oklch(0.64 0.12 210);
+    }
+
+    .flow-canvas .react-flow__nodesselection {
+        display: none;
+    }
 }
