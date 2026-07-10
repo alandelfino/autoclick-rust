@@ -1,19 +1,24 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb'
 import { Button } from '../../components/ui/button'
 import { addEdge, applyEdgeChanges, applyNodeChanges, Background, BackgroundVariant, Controls, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { useCallback, useState } from 'react'
 import { Separator } from '../../components/ui/separator'
-import { ChevronLeft, PlusIcon, SaveIcon } from 'lucide-react'
+import { PlusIcon, SaveIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip'
+import startNode from './-components/start-node'
+
 
 export const Route = createFileRoute('/flow/')({
     component: RouteComponent,
 })
 
+const nodeTypes = {
+    startNode: startNode,
+};
+
 const initialNodes = [
-    { id: 'n1', position: { x: 0, y: 0 }, data: { label: 'Node 1' } },
+    { id: 'n1', position: { x: 0, y: 0 }, data: { label: 'Node 1' }, type: 'startNode' },
     { id: 'n2', position: { x: 0, y: 100 }, data: { label: 'Node 2' } },
 ];
 const initialEdges = [{ id: 'n1-n2', source: 'n1', target: 'n2' }];
@@ -97,10 +102,11 @@ function RouteComponent() {
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
+                    nodeTypes={nodeTypes}
                     fitView
                 >
                     <Background color="#ccc" variant={BackgroundVariant.Dots} />
-                    <Controls position='bottom-right' orientation='horizontal' />
+                    <Controls position='bottom-right' orientation='horizontal' showFitView={true} showZoom={true} showInteractive={true} />
 
                     <div className='absolute top-4 right-4 z-10'>
                         <Tooltip>
