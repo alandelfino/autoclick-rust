@@ -188,9 +188,11 @@
     .max-w-container {
         max-width: var(--container-width);
     }
-    
+
     .react-flow__panel.react-flow__attribution.bottom.right {
         left: 0;
+        right: auto;
+        background-color: transparent;
     }
 
     .flow-canvas .react-flow__pane {

@@ -1,9 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+
 import { Button } from '../../components/ui/button'
-import { addEdge, applyEdgeChanges, applyNodeChanges, Background, BackgroundVariant, PanOnScrollMode, ReactFlow, ReactFlowProvider, SelectionMode, useReactFlow, useViewport } from '@xyflow/react'
+import { addEdge, applyEdgeChanges, applyNodeChanges, Background, BackgroundVariant, MarkerType, ReactFlow, ReactFlowProvider, SelectionMode, useReactFlow, useViewport } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { Separator } from '../../components/ui/separator'
+import { NodeEditorModal } from './-components/node-editor-modal'
+import { useToast } from '../../hooks/use-toast'
 import {
     ArrowBigDownDash,
     BadgeCheckIcon,
@@ -28,7 +31,6 @@ import {
     PlayIcon,
     PlusIcon,
     RepeatIcon,
-    SaveIcon,
     SearchIcon,
     StepForwardIcon,
     StickyNotePlusIcon,
@@ -43,31 +45,40 @@ import type { ComponentType, DragEvent, MouseEvent as ReactMouseEvent } from 're
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../../components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip'
-import startNode from './-components/start-node'
-import clickByCoordinatesNode from './-components/click-by-coordinates-node'
-import moveCursorNode from './-components/move-cursor-node'
-import keypressNode from './-components/keypress-node'
-import typeTextNode from './-components/type-text-node'
-import windowsDataNode from './-components/windows-data-node'
-import conditionalNode from './-components/conditional-node'
-import delayNode from './-components/delay-node'
-import loopNode from './-components/loop-node'
-import nextItemNode from './-components/next-item-node'
-import stopLoopNode from './-components/stop-loop-node'
-import switchCaseNode from './-components/switch-case-node'
-import postgresqlQueryNode from './-components/postgresql-query-node'
-import mysqlQueryNode from './-components/mysql-query-node'
-import sqliteQueryNode from './-components/sqlite-query-node'
-import apiRequestNode from './-components/api-request-node'
-import variableNode from './-components/variable-node'
-import runJavascriptNode from './-components/run-javascript-node'
-import actionsDialogNode from './-components/actions-dialog-node'
-import alertDialogNode from './-components/alert-dialog-node'
+import startNode from './-components/nodes/start-node'
+import clickByCoordinatesNode from './-components/nodes/click-by-coordinates-node'
+import moveCursorNode from './-components/nodes/move-cursor-node'
+import keypressNode from './-components/nodes/keypress-node'
+import typeTextNode from './-components/nodes/type-text-node'
+import windowsDataNode from './-components/nodes/windows-data-node'
+import conditionalNode from './-components/nodes/conditional-node'
+import delayNode from './-components/nodes/delay-node'
+import loopNode from './-components/nodes/loop-node'
+import nextItemNode from './-components/nodes/next-item-node'
+import stopLoopNode from './-components/nodes/stop-loop-node'
+import switchCaseNode from './-components/nodes/switch-case-node'
+import postgresqlQueryNode from './-components/nodes/postgresql-query-node'
+import mysqlQueryNode from './-components/nodes/mysql-query-node'
+import sqliteQueryNode from './-components/nodes/sqlite-query-node'
+import apiRequestNode from './-components/nodes/api-request-node'
+import variableNode from './-components/nodes/variable-node'
+import runJavascriptNode from './-components/nodes/run-javascript-node'
+import actionsDialogNode from './-components/nodes/actions-dialog-node'
+import alertDialogNode from './-components/nodes/alert-dialog-node'
 import actionEdge from './-components/action-edge'
 import logo from '../../assets/logo.png'
 
+type FlowSearch = {
+    id?: string;
+}
+
 export const Route = createFileRoute('/flow/')({
     component: RouteComponent,
+    validateSearch: (search: Record<string, unknown>): FlowSearch => {
+        return {
+            id: search.id as string | undefined,
+        }
+    }
 })
 
 const nodeTypes = {
@@ -196,95 +207,215 @@ const initialNodes = [
 const initialEdges = [{ id: 'n1-n2', source: 'n1', target: 'n2', type: 'actionEdge' }];
 
 function RouteComponent() {
+    const { id } = Route.useSearch();
     return (
-        <>
-            <div className='h-16 border-y flex items-center px-4 gap-4'>
-                <div>
-                    <img
-                        src={logo}
-                        alt='Logo'
-                        className='h-11 object-contain'
-                    />
-                </div>
-
-                <Separator orientation="vertical" className='h-9 my-auto' />
-
-                <Breadcrumb className='w-full'>
-                    <BreadcrumbList>
-                        <BreadcrumbItem>
-                            <BreadcrumbLink render={<a href="#">Flows</a>} className='text-xs font-semibold text-neutral-800' />
-                        </BreadcrumbItem>
-                        <BreadcrumbSeparator />
-                        <BreadcrumbItem>
-                            <BreadcrumbPage className='text-xs'>#123456789</BreadcrumbPage>
-                        </BreadcrumbItem>
-                    </BreadcrumbList>
-                </Breadcrumb>
-
-                <div className='flex items-center gap-2 min-w-fit'>
-                    <div>
-                        <div className='flex items-center gap-2'>
-                            <div className='size-1 rounded-full bg-teal-600 animate-ping leading-1'></div>
-                            <div className='text-xs text-teal-600 leading-1'>Auto save active</div>
-                        </div>
-                        <span className='text-xs min-w-fit'>Last save change: 21/07/2026 13:23</span>
-                    </div>
-
-                    <Separator orientation="vertical" className='h-9 my-auto mx-4' />
-
-                    <Button variant='outline'>
-                        Close
-                    </Button>
-
-                    <Button className="bg-teal-600 hover:bg-teal-700 text-white">
-                        <SaveIcon /> Save
-                    </Button>
-                </div>
-            </div>
-
-            <div className='w-screen h-[calc(100vh-3.5rem)]'>
-                <ReactFlowProvider>
-                    <FlowBuilder />
-                </ReactFlowProvider>
-            </div>
-        </>
-    )
+        <ReactFlowProvider>
+            <FlowBuilder flowId={id} />
+        </ReactFlowProvider>
+    );
 }
 
-function FlowBuilder() {
-    const [nodes, setNodes] = useState<any[]>(initialNodes);
-    const [edges, setEdges] = useState<any[]>(initialEdges);
+function FlowBuilder({ flowId }: { flowId?: string }) {
+    const navigate = useNavigate();
+    const { toast } = useToast();
+    const [nodes, setNodes] = useState<any[]>([]);
+    const [edges, setEdges] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [editingNode, setEditingNode] = useState<any>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [pendingSourceNodeId, setPendingSourceNodeId] = useState<string | null>(null);
     const [pendingInsertEdgeId, setPendingInsertEdgeId] = useState<string | null>(null);
     const [connectingSourceNodeId, setConnectingSourceNodeId] = useState<string | null>(null);
-    const [isCtrlPressed, setIsCtrlPressed] = useState(false);
-    const { screenToFlowPosition } = useReactFlow();
+    const { screenToFlowPosition, setViewport, getViewport } = useReactFlow();
 
+    const [flowName, setFlowName] = useState("Carregando fluxo...");
+    const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
+    const [viewportTrigger, setViewportTrigger] = useState(0);
+    const [connectionStyle, setConnectionStyle] = useState({
+        strokeWidth: 2,
+        stroke: "#ececec",
+    });
+    const [zoomLimits, setZoomLimits] = useState({
+        minZoom: 0.1,
+        maxZoom: 3.0,
+    });
+
+    // Fetch settings on mount to determine autoSave status
     useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Control') {
-                setIsCtrlPressed(true);
+        const fetchSettings = async () => {
+            try {
+                const settings = await invoke<any>("get_settings");
+                setAutoSaveEnabled(settings?.autoSave ?? false);
+                setConnectionStyle({
+                    strokeWidth: settings?.connectionsStrokeWidth ?? 2,
+                    stroke: settings?.connectionsStroke ?? "#ececec",
+                });
+                setZoomLimits({
+                    minZoom: settings?.minZoom ?? 0.1,
+                    maxZoom: settings?.maxZoom ?? 3.0,
+                });
+            } catch (err) {
+                console.error("Failed to load settings in FlowBuilder:", err);
             }
         };
-        const onKeyUp = (event: KeyboardEvent) => {
-            if (event.key === 'Control') {
-                setIsCtrlPressed(false);
-            }
-        };
-        const onBlur = () => setIsCtrlPressed(false);
-
-        window.addEventListener('keydown', onKeyDown);
-        window.addEventListener('keyup', onKeyUp);
-        window.addEventListener('blur', onBlur);
-
-        return () => {
-            window.removeEventListener('keydown', onKeyDown);
-            window.removeEventListener('keyup', onKeyUp);
-            window.removeEventListener('blur', onBlur);
-        };
+        fetchSettings();
     }, []);
+
+    // Load flow data on mount
+    useEffect(() => {
+        if (!flowId) return;
+
+        const loadFlow = async () => {
+            try {
+                const flow = await invoke<{ id: string; name: string }>("get_flow", { id: flowId });
+                setFlowName(flow.name);
+            } catch (err) {
+                console.error("Falha ao carregar o fluxo:", err);
+                setFlowName("Fluxo não encontrado");
+            }
+        };
+
+        const loadFlowData = async () => {
+            setIsLoading(true);
+            try {
+                const data = await invoke<{
+                    nodes: any[];
+                    edges: any[];
+                    zoom: number;
+                    viewportX: number;
+                    viewportY: number;
+                }>("get_flow_data", { flowId });
+
+                if (data.nodes && data.nodes.length > 0) {
+                    const mappedNodes = data.nodes.map(n => {
+                        const parsedData = n.data ? JSON.parse(n.data) : {};
+                        return {
+                            id: n.id,
+                            type: n.type,
+                            position: { x: n.x, y: n.y },
+                            data: {
+                                label: n.label,
+                                alias: parsedData.alias || n.id.replace(/-/g, '_'),
+                                parameters: parsedData.parameters || {},
+                                output: parsedData.output || null
+                            }
+                        };
+                    });
+
+                    const mappedEdges = data.edges.map(e => ({
+                        id: e.id,
+                        source: e.source,
+                        target: e.target,
+                        type: e.type || undefined,
+                        sourceHandle: e.sourceHandle || undefined,
+                        targetHandle: e.targetHandle || undefined,
+                        data: e.data ? JSON.parse(e.data) : undefined
+                    }));
+
+                    setNodes(mappedNodes);
+                    setEdges(mappedEdges);
+                } else {
+                    setNodes(initialNodes);
+                    setEdges(initialEdges);
+                }
+
+                // Restore viewport position and zoom
+                setTimeout(() => {
+                    setViewport({
+                        x: data.viewportX ?? 0,
+                        y: data.viewportY ?? 0,
+                        zoom: data.zoom ?? 1
+                    });
+                }, 50);
+            } catch (err) {
+                console.error("Failed to load flow data:", err);
+                setNodes(initialNodes);
+                setEdges(initialEdges);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        loadFlow();
+        loadFlowData();
+    }, [flowId]);
+
+    // Debounced auto-save (triggers only if autoSaveEnabled is true)
+    useEffect(() => {
+        if (isLoading || !flowId || !autoSaveEnabled) return;
+
+        const saveTimer = setTimeout(async () => {
+            try {
+                const backendNodes = nodes.map(n => ({
+                    id: n.id,
+                    type: n.type,
+                    label: n.data?.label || n.type,
+                    x: n.position.x,
+                    y: n.position.y,
+                    data: JSON.stringify({
+                        alias: n.data?.alias || n.id.replace(/-/g, '_'),
+                        parameters: n.data?.parameters || {},
+                        output: n.data?.output || null
+                    })
+                }));
+
+                const backendEdges = edges.map(e => ({
+                    id: e.id,
+                    source: e.source,
+                    target: e.target,
+                    type: e.type || null,
+                    sourceHandle: e.sourceHandle || null,
+                    targetHandle: e.targetHandle || null,
+                    data: e.data ? JSON.stringify(e.data) : null
+                }));
+
+                const { x: vx, y: vy, zoom: vz } = getViewport();
+
+                await invoke("save_flow_data", {
+                    flowId,
+                    nodes: backendNodes,
+                    edges: backendEdges,
+                    zoom: vz,
+                    viewportX: vx,
+                    viewportY: vy
+                });
+            } catch (err) {
+                console.error("Failed to auto-save flow data:", err);
+            }
+        }, 1500);
+
+        return () => clearTimeout(saveTimer);
+    }, [nodes, edges, flowId, isLoading, autoSaveEnabled, viewportTrigger]);
+
+    const onNodeDoubleClick = useCallback((_event: any, node: any) => {
+        setEditingNode(node);
+    }, []);
+
+    const onMoveEnd = useCallback(() => {
+        setViewportTrigger(prev => prev + 1);
+    }, []);
+
+    const handleSaveNodeDetails = (nodeId: string, name: string, alias: string, parameters: any, output: any) => {
+        setNodes(prev => prev.map(n => {
+            if (n.id === nodeId) {
+                return {
+                    ...n,
+                    data: {
+                        ...n.data,
+                        label: name,
+                        alias,
+                        parameters,
+                        output
+                    }
+                };
+            }
+            return n;
+        }));
+        setEditingNode(null);
+    };
+
+    // Native ReactFlow handles Ctrl key activation internally via panActivationKeyCode
 
     const filteredCategories = useMemo(() => {
         const normalizedSearchTerm = searchTerm.trim().toLowerCase();
@@ -336,13 +467,24 @@ function FlowBuilder() {
         return edges.map((edge) => ({
             ...edge,
             type: edge.type ?? 'actionEdge',
+            style: {
+                strokeWidth: connectionStyle.strokeWidth,
+                stroke: connectionStyle.stroke,
+                ...edge.style,
+            },
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: connectionStyle.stroke,
+                strokeWidth: connectionStyle.strokeWidth,
+
+            },
             data: {
                 ...edge.data,
                 onDeleteEdge: deleteEdge,
                 onInsertNode: openNodePickerFromEdge,
             },
         }));
-    }, [deleteEdge, edges, openNodePickerFromEdge]);
+    }, [deleteEdge, edges, openNodePickerFromEdge, connectionStyle]);
 
     const createNode = useCallback((type: NodeTypeName, clientX?: number, clientY?: number, sourceNodeId?: string | null, insertEdgeId?: string | null) => {
         const item = allNodeItems.find((node) => node.type === type);
@@ -364,23 +506,23 @@ function FlowBuilder() {
                     : insertSourceNode && insertTargetNode
                         ? Math.round(((insertSourceNode.position.x + insertTargetNode.position.x) / 2) / 20) * 20
                         : screenToFlowPosition({
-                    x: window.innerWidth / 2,
-                    y: window.innerHeight / 2,
-                }, {
-                    snapToGrid: true,
-                    snapGrid: [20, 20],
-                }).x,
+                            x: window.innerWidth / 2,
+                            y: window.innerHeight / 2,
+                        }, {
+                            snapToGrid: true,
+                            snapGrid: [20, 20],
+                        }).x,
                 y: sourceNode
                     ? sourceNode.position.y
                     : insertSourceNode && insertTargetNode
                         ? Math.round(((insertSourceNode.position.y + insertTargetNode.position.y) / 2) / 20) * 20
                         : screenToFlowPosition({
-                    x: window.innerWidth / 2,
-                    y: window.innerHeight / 2,
-                }, {
-                    snapToGrid: true,
-                    snapGrid: [20, 20],
-                }).y,
+                            x: window.innerWidth / 2,
+                            y: window.innerHeight / 2,
+                        }, {
+                            snapToGrid: true,
+                            snapGrid: [20, 20],
+                        }).y,
             };
         const newNodeId = `${type}-${crypto.randomUUID()}`;
 
@@ -483,103 +625,225 @@ function FlowBuilder() {
         setIsSidebarOpen(false);
     }, []);
 
+    const handleManualSave = async () => {
+        if (!flowId) return;
+        try {
+            const backendNodes = nodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                label: n.data?.label || n.type,
+                x: n.position.x,
+                y: n.position.y,
+                data: JSON.stringify({
+                    alias: n.data?.alias || n.id.replace(/-/g, '_'),
+                    parameters: n.data?.parameters || {},
+                    output: n.data?.output || null
+                })
+            }));
+
+            const backendEdges = edges.map(e => ({
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                type: e.type || null,
+                sourceHandle: e.sourceHandle || null,
+                targetHandle: e.targetHandle || null,
+                data: e.data ? JSON.stringify(e.data) : null
+            }));
+
+            const { x: vx, y: vy, zoom: vz } = getViewport();
+
+            await invoke("save_flow_data", {
+                flowId,
+                nodes: backendNodes,
+                edges: backendEdges,
+                zoom: vz,
+                viewportX: vx,
+                viewportY: vy
+            });
+
+            toast({
+                title: "Fluxo salvo!",
+                description: "O fluxo foi salvo com sucesso no banco de dados.",
+                variant: "success",
+            });
+        } catch (err) {
+            console.error("Failed to save flow:", err);
+            toast({
+                title: "Erro ao salvar!",
+                description: "Não foi possível salvar o fluxo.",
+                variant: "destructive",
+            });
+        }
+    };
+
     return (
-        <ContextMenu>
-            <ContextMenuTrigger className='h-full w-full'>
-                <ReactFlow
-            nodes={renderedNodes}
-            edges={renderedEdges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onConnectStart={onConnectStart}
-            onConnectEnd={onConnectEnd}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            className={isCtrlPressed ? 'flow-canvas flow-canvas--ctrl' : 'flow-canvas'}
-            zoomOnScroll={false}
-            zoomActivationKeyCode="Control"
-            panOnScroll={true}
-            panOnScrollMode={PanOnScrollMode.Vertical}
-            panOnDrag={false}
-            panActivationKeyCode="Control"
-            selectionOnDrag={true}
-            selectionMode={SelectionMode.Partial}
-            multiSelectionKeyCode="Shift"
-            selectNodesOnDrag={false}
-            snapToGrid={true}
-            snapGrid={[20, 20]}
-            fitView
-        >
-            <Background bgColor='#f5f5f5' color="#b1b1b7" variant={BackgroundVariant.Dots} gap={16} />
-            <CanvasControls />
+        <div className="flex flex-col h-screen w-screen overflow-hidden">
+            {/* Header */}
+            <div className='h-18 border-b flex items-center px-4 gap-4 flex-none bg-white'>
+                <div>
+                    <img
+                        src={logo}
+                        alt='Logo'
+                        className='h-18 object-contain'
+                    />
+                </div>
 
-            <NodePickerSidebar
-                isOpen={isSidebarOpen}
-                searchTerm={searchTerm}
-                filteredCategories={filteredCategories}
-                onSearchChange={setSearchTerm}
-                onClose={closeNodePicker}
-                onNodeDrop={onDrop}
-                onNodeDragOver={onDragOver}
-                onNodeClick={onSidebarClick}
-            />
+                <Separator orientation="vertical" className='h-9 my-auto' />
 
-            <div className='absolute top-4 right-4 z-10 flex flex-col gap-2'>
-                <Tooltip>
-                    <TooltipTrigger>
-                        <Button
-                            variant='outline'
-                            className="size-8 shadow-sm rounded-md"
-                            onClick={() => setIsSidebarOpen(true)}
-                        >
-                            <PlusIcon />
+                <div className='w-full'>
+                    <span className='text-md font-semibold text-neutral-800'>{flowName}</span>
+                    <p className='text-xs text-neutral-400'>ID: {flowId || "N/A"}</p>
+                </div>
+
+                <div className='flex items-center gap-2 min-w-fit'>
+                    <div>
+                        {autoSaveEnabled ? (
+                            <div className='flex items-center gap-2 bg-teal-50 border border-teal-100 rounded px-2.5 py-1'>
+                                <div className='size-1.5 rounded-full bg-teal-600 animate-ping'></div>
+                                <div className='text-[10px] uppercase font-bold text-teal-600 tracking-wider'>Auto save active</div>
+                            </div>
+                        ) : (
+                            <div className='flex items-center gap-2 bg-neutral-100 border border-neutral-200 rounded px-2.5 py-1'>
+                                <div className='size-1.5 rounded-full bg-neutral-400'></div>
+                                <div className='text-[10px] uppercase font-bold text-neutral-500 tracking-wider'>Auto save inactive</div>
+                            </div>
+                        )}
+                    </div>
+
+                    <Separator orientation="vertical" className='h-9 my-auto mx-2' />
+
+                    {!autoSaveEnabled && (
+                        <Button variant='outline' onClick={handleManualSave} className="rounded-md">
+                            Salvar
                         </Button>
-                    </TooltipTrigger>
-                    <TooltipContent align='center' side='left'>
-                        <p>Add new node</p>
-                    </TooltipContent>
-                </Tooltip>
+                    )}
 
-                <Tooltip>
-                    <TooltipTrigger>
-                        <Button variant='outline' className="size-8 shadow-sm rounded-md">
-                            <SearchIcon />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent align='center' side='left'>
-                        <p>Search a node</p>
-                    </TooltipContent>
-                </Tooltip>
+                    <Button variant='outline' onClick={() => navigate({ to: "/dashboard/flows" })} className="rounded-md">
+                        Close
+                    </Button>
 
-                <Tooltip>
-                    <TooltipTrigger>
-                        <Button variant='outline' className="size-8 shadow-sm rounded-md">
-                            <StickyNotePlusIcon />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent align='center' side='left'>
-                        <p>Add a stick note</p>
-                    </TooltipContent>
-                </Tooltip>
+                    <Button className="bg-teal-600 hover:bg-teal-700 text-white rounded-md">
+                        <PlayIcon /> Run Flow
+                    </Button>
+                </div>
             </div>
-                </ReactFlow>
-            </ContextMenuTrigger>
 
-            <ContextMenuContent>
-                <ContextMenuItem>
-                    <Edit3Icon />
-                    Editar
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem variant='destructive'>
-                    <Trash2Icon />
-                    Excluir
-                </ContextMenuItem>
-            </ContextMenuContent>
-        </ContextMenu>
+            {/* ReactFlow Canvas container */}
+            <div className='flex-1 min-h-0 relative'>
+                <ContextMenu>
+                    <ContextMenuTrigger className='h-full w-full block'>
+                        <ReactFlow
+                            nodes={renderedNodes}
+                            edges={renderedEdges}
+                            onNodesChange={onNodesChange}
+                            onEdgesChange={onEdgesChange}
+                            onConnect={onConnect}
+                            connectionLineStyle={{
+                                strokeWidth: connectionStyle.strokeWidth,
+                                stroke: connectionStyle.stroke,
+                            }}
+                            onConnectStart={onConnectStart}
+                            onConnectEnd={onConnectEnd}
+                            onNodeDoubleClick={onNodeDoubleClick}
+                            onDragOver={onDragOver}
+                            onDrop={onDrop}
+                            onMoveEnd={onMoveEnd}
+                            nodeTypes={nodeTypes}
+                            edgeTypes={edgeTypes}
+                            className="flow-canvas"
+                            zoomOnScroll={true}
+                            panOnScroll={false}
+                            panOnDrag={true}
+                            panActivationKeyCode="Control"
+                            selectionOnDrag={true}
+                            selectionMode={SelectionMode.Partial}
+                            multiSelectionKeyCode="Shift"
+                            selectNodesOnDrag={false}
+                            snapToGrid={true}
+                            snapGrid={[20, 20]}
+                            fitView
+                            minZoom={zoomLimits.minZoom}
+                            maxZoom={zoomLimits.maxZoom}
+                        >
+                            <Background bgColor='#f5f5f5' color="#b1b1b7" variant={BackgroundVariant.Dots} gap={16} />
+                            <CanvasControls />
+
+                            <NodePickerSidebar
+                                isOpen={isSidebarOpen}
+                                searchTerm={searchTerm}
+                                filteredCategories={filteredCategories}
+                                onSearchChange={setSearchTerm}
+                                onClose={closeNodePicker}
+                                onNodeDrop={onDrop}
+                                onNodeDragOver={onDragOver}
+                                onNodeClick={onSidebarClick}
+                            />
+
+                            <div className='absolute top-4 right-4 z-10 flex flex-col gap-1'>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Button
+                                            variant='outline'
+                                            className="size-8 rounded-sm"
+                                            onClick={() => setIsSidebarOpen(true)}
+                                        >
+                                            <PlusIcon />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent align='center' side='left'>
+                                        <p>Add new node</p>
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Button variant='outline' className="size-8 rounded-sm">
+                                            <SearchIcon />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent align='center' side='left'>
+                                        <p>Search a node</p>
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Button variant='outline' className="size-8 rounded-sm">
+                                            <StickyNotePlusIcon />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent align='center' side='left'>
+                                        <p>Add a stick note</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </div>
+                        </ReactFlow>
+
+                        <NodeEditorModal
+                            open={editingNode !== null}
+                            onOpenChange={(open) => !open && setEditingNode(null)}
+                            node={editingNode}
+                            allNodes={nodes}
+                            allEdges={edges}
+                            onSave={handleSaveNodeDetails}
+                        />
+                    </ContextMenuTrigger>
+
+                    <ContextMenuContent>
+                        <ContextMenuItem>
+                            <Edit3Icon />
+                            Editar
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem variant='destructive'>
+                            <Trash2Icon />
+                            Excluir
+                        </ContextMenuItem>
+                    </ContextMenuContent>
+                </ContextMenu>
+            </div>
+        </div>
     );
 }
 

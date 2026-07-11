@@ -2,6 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
 import { Button } from "../../../components/ui/button";
+import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useToast } from "../../../hooks/use-toast";
 
 import { SaveIcon } from "lucide-react";
 import z from "zod";
@@ -25,6 +28,7 @@ const formSchema = z.object({
 });
 
 function Settings() {
+    const { toast } = useToast();
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema) as any,
@@ -39,8 +43,34 @@ function Settings() {
         },
     });
 
-    function onSubmit(values: z.infer<typeof formSchema>) {
-        console.log(values);
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const config = await invoke<z.infer<typeof formSchema>>("get_settings");
+                form.reset(config);
+            } catch (err) {
+                console.error("Failed to load settings:", err);
+            }
+        };
+        loadSettings();
+    }, []);
+
+    async function onSubmit(values: z.infer<typeof formSchema>) {
+        try {
+            await invoke("save_settings", { config: values });
+            toast({
+                title: "Configurações salvas!",
+                description: "Suas preferências foram gravadas com sucesso no arquivo config.",
+                variant: "success",
+            });
+        } catch (err) {
+            console.error("Failed to save settings:", err);
+            toast({
+                title: "Erro ao salvar!",
+                description: "Não foi possível gravar as configurações.",
+                variant: "destructive",
+            });
+        }
     }
 
     function onReset() {
@@ -79,7 +109,7 @@ function Settings() {
                                                     </FieldLabel>
                                                     <FieldDescription>Hide all the windows of the application when not in use.</FieldDescription>
                                                 </div>
-                                                <Switch {...field} value={field.value ? "on" : "off"} defaultChecked={field.value} />
+                                                <Switch checked={!!field.value} onCheckedChange={field.onChange} id="form-rhf-demo-hiddeWindows" />
                                                 {fieldState.invalid && (
                                                     <FieldError errors={[fieldState.error]} />
                                                 )}
@@ -100,7 +130,7 @@ function Settings() {
                                                     </FieldLabel>
                                                     <FieldDescription>Auto save when changes are made.</FieldDescription>
                                                 </div>
-                                                <Switch {...field} value={field.value ? "on" : "off"} defaultChecked={field.value} />
+                                                <Switch checked={!!field.value} onCheckedChange={field.onChange} id="form-rhf-demo-autoSave" />
                                                 {fieldState.invalid && (
                                                     <FieldError errors={[fieldState.error]} />
                                                 )}
@@ -130,6 +160,7 @@ function Settings() {
                                                     autoComplete="off"
                                                     type="number"
                                                     className="max-w-16"
+                                                    onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
                                                 />
                                             </div>
                                             {fieldState.invalid && (
@@ -161,6 +192,7 @@ function Settings() {
                                                     autoComplete="off"
                                                     type="number"
                                                     className="max-w-16"
+                                                    onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
                                                 />
                                                 {fieldState.invalid && (
                                                     <FieldError errors={[fieldState.error]} />
@@ -192,6 +224,7 @@ function Settings() {
                                                     autoComplete="off"
                                                     type="number"
                                                     className="max-w-16"
+                                                    onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
                                                 />
                                                 {fieldState.invalid && (
                                                     <FieldError errors={[fieldState.error]} />
@@ -223,6 +256,7 @@ function Settings() {
                                                     autoComplete="off"
                                                     type="number"
                                                     className="max-w-16"
+                                                    onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
                                                 />
                                                 {fieldState.invalid && (
                                                     <FieldError errors={[fieldState.error]} />
@@ -263,8 +297,10 @@ function Settings() {
                                     )}
                                 />
 
+                                {/* Toast messages are handled globally */}
+
                                 <div className="grid grid-cols-2 w-full gap-2">
-                                    <Button variant="outline" type="button">
+                                    <Button variant="outline" type="button" onClick={onReset}>
                                         Cancel
                                     </Button>
                                     <Button variant="default" type="submit" disabled={form.formState.isSubmitting} className="">

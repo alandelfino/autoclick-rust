@@ -4,6 +4,9 @@ use std::io::Write;
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+use rusqlite::{params, Connection};
+use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
 // Win32 Structs
 #[repr(C)]
@@ -484,12 +487,379 @@ fn start_hotkey_listener(app_handle: tauri::AppHandle) {
     });
 }
 
+pub struct AppState {
+    pub db_path: std::path::PathBuf,
+    pub config_path: std::path::PathBuf,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Flow {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Credential {
+    pub id: String,
+    pub name: String,
+    pub r#type: String,
+    pub value1: Option<String>,
+    pub value2: Option<String>,
+    pub value3: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppConfig {
+    #[serde(rename = "hiddeWindows")]
+    pub hidde_windows: bool,
+    pub auto_save: bool,
+    pub countdown_seconds: i32,
+    pub min_zoom: f64,
+    pub max_zoom: f64,
+    pub connections_stroke_width: i32,
+    pub connections_stroke: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            hidde_windows: false,
+            auto_save: false,
+            countdown_seconds: 3,
+            min_zoom: 0.1,
+            max_zoom: 3.0,
+            connections_stroke_width: 2,
+            connections_stroke: "#ececec".to_string(),
+        }
+    }
+}
+
+// --- FLOWS COMMANDS ---
+
+#[tauri::command]
+fn list_flows(state: tauri::State<'_, AppState>) -> Result<Vec<Flow>, String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, name FROM flows").map_err(|e| e.to_string())?;
+    let flows_iter = stmt.query_map([], |row| {
+        Ok(Flow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut flows = Vec::new();
+    for flow in flows_iter {
+        flows.push(flow.map_err(|e| e.to_string())?);
+    }
+    Ok(flows)
+}
+
+#[tauri::command]
+fn create_flow(state: tauri::State<'_, AppState>, name: String) -> Result<String, String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let new_id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO flows (id, name) VALUES (?1, ?2)",
+        params![new_id, name],
+    ).map_err(|e| e.to_string())?;
+    Ok(new_id)
+}
+
+#[tauri::command]
+fn get_flow(state: tauri::State<'_, AppState>, id: String) -> Result<Flow, String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, name FROM flows WHERE id = ?1").map_err(|e| e.to_string())?;
+    let mut flows_iter = stmt.query_map(params![id], |row| {
+        Ok(Flow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    if let Some(flow) = flows_iter.next() {
+        Ok(flow.map_err(|e| e.to_string())?)
+    } else {
+        Err("Flow not found".to_string())
+    }
+}
+
+#[tauri::command]
+fn update_flow(state: tauri::State<'_, AppState>, id: String, name: String) -> Result<(), String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE flows SET name = ?2 WHERE id = ?1",
+        params![id, name],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_flow(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM flows WHERE id = ?1",
+        params![id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// --- CREDENTIALS COMMANDS ---
+
+#[tauri::command]
+fn list_credentials(state: tauri::State<'_, AppState>) -> Result<Vec<Credential>, String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, name, type, value1, value2, value3 FROM credentials").map_err(|e| e.to_string())?;
+    let creds_iter = stmt.query_map([], |row| {
+        Ok(Credential {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            r#type: row.get(2)?,
+            value1: row.get(3)?,
+            value2: row.get(4)?,
+            value3: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut creds = Vec::new();
+    for cred in creds_iter {
+        creds.push(cred.map_err(|e| e.to_string())?);
+    }
+    Ok(creds)
+}
+
+#[tauri::command]
+fn create_credential(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    r#type: String,
+    value1: Option<String>,
+    value2: Option<String>,
+    value3: Option<String>,
+) -> Result<String, String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let new_id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO credentials (id, name, type, value1, value2, value3) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![new_id, name, r#type.to_lowercase(), value1, value2, value3],
+    ).map_err(|e| e.to_string())?;
+    Ok(new_id)
+}
+
+#[tauri::command]
+fn update_credential(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: String,
+    r#type: String,
+    value1: Option<String>,
+    value2: Option<String>,
+    value3: Option<String>,
+) -> Result<(), String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE credentials SET name = ?2, type = ?3, value1 = ?4, value2 = ?5, value3 = ?6 WHERE id = ?1",
+        params![id, name, r#type.to_lowercase(), value1, value2, value3],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_credential(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM credentials WHERE id = ?1",
+        params![id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// --- SETTINGS COMMANDS ---
+
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, AppState>) -> Result<AppConfig, String> {
+    if !state.config_path.exists() {
+        return Ok(AppConfig::default());
+    }
+    let config_str = std::fs::read_to_string(&state.config_path).map_err(|e| e.to_string())?;
+    let config: AppConfig = serde_json::from_str(&config_str).map_err(|e| e.to_string())?;
+    Ok(config)
+}
+
+#[tauri::command]
+fn save_settings(state: tauri::State<'_, AppState>, config: AppConfig) -> Result<(), String> {
+    let config_str = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(&state.config_path, config_str).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendNode {
+    pub id: String,
+    pub r#type: String,
+    pub label: String,
+    pub x: f64,
+    pub y: f64,
+    pub data: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendEdge {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub r#type: Option<String>,
+    pub source_handle: Option<String>,
+    pub target_handle: Option<String>,
+    pub data: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowData {
+    pub nodes: Vec<BackendNode>,
+    pub edges: Vec<BackendEdge>,
+    pub zoom: f64,
+    pub viewport_x: f64,
+    pub viewport_y: f64,
+}
+
+#[tauri::command]
+fn get_flow_data(state: tauri::State<'_, AppState>, flow_id: String) -> Result<FlowData, String> {
+    let conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    
+    // Load nodes
+    let mut stmt = conn.prepare("SELECT id, type, label, x, y, data FROM nodes WHERE flow_id = ?1").map_err(|e| e.to_string())?;
+    let nodes_iter = stmt.query_map(params![flow_id], |row| {
+        Ok(BackendNode {
+            id: row.get(0)?,
+            r#type: row.get(1)?,
+            label: row.get(2)?,
+            x: row.get(3)?,
+            y: row.get(4)?,
+            data: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    
+    let mut nodes = Vec::new();
+    for node in nodes_iter {
+        nodes.push(node.map_err(|e| e.to_string())?);
+    }
+    
+    // Load connections (edges)
+    let mut stmt_edges = conn.prepare("SELECT id, source, target, type, source_handle, target_handle, data FROM connections WHERE flow_id = ?1").map_err(|e| e.to_string())?;
+    let edges_iter = stmt_edges.query_map(params![flow_id], |row| {
+        Ok(BackendEdge {
+            id: row.get(0)?,
+            source: row.get(1)?,
+            target: row.get(2)?,
+            r#type: row.get(3)?,
+            source_handle: row.get(4)?,
+            target_handle: row.get(5)?,
+            data: row.get(6)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    
+    let mut edges = Vec::new();
+    for edge in edges_iter {
+        edges.push(edge.map_err(|e| e.to_string())?);
+    }
+    
+    let (zoom, viewport_x, viewport_y) = conn.query_row(
+        "SELECT zoom, viewport_x, viewport_y FROM flows WHERE id = ?1",
+        params![flow_id],
+        |row| Ok((row.get::<_, f64>(0).unwrap_or(1.0), row.get::<_, f64>(1).unwrap_or(0.0), row.get::<_, f64>(2).unwrap_or(0.0))),
+    ).unwrap_or((1.0, 0.0, 0.0));
+    
+    Ok(FlowData {
+        nodes,
+        edges,
+        zoom,
+        viewport_x,
+        viewport_y,
+    })
+}
+
+#[tauri::command]
+fn save_flow_data(
+    state: tauri::State<'_, AppState>,
+    flow_id: String,
+    nodes: Vec<BackendNode>,
+    edges: Vec<BackendEdge>,
+    zoom: f64,
+    viewport_x: f64,
+    viewport_y: f64,
+) -> Result<(), String> {
+    let mut conn = Connection::open(&state.db_path).map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    
+    tx.execute(
+        "UPDATE flows SET zoom = ?1, viewport_x = ?2, viewport_y = ?3 WHERE id = ?4",
+        params![zoom, viewport_x, viewport_y, flow_id],
+    ).map_err(|e| e.to_string())?;
+    
+    tx.execute("DELETE FROM connections WHERE flow_id = ?1", params![flow_id]).map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM nodes WHERE flow_id = ?1", params![flow_id]).map_err(|e| e.to_string())?;
+    
+    for node in &nodes {
+        tx.execute(
+            "INSERT INTO nodes (id, flow_id, type, label, x, y, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![node.id, flow_id, node.r#type, node.label, node.x, node.y, node.data],
+        ).map_err(|e| e.to_string())?;
+    }
+    
+    for edge in &edges {
+        tx.execute(
+            "INSERT INTO connections (id, flow_id, source, target, type, source_handle, target_handle, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![edge.id, flow_id, edge.source, edge.target, edge.r#type, edge.source_handle, edge.target_handle, edge.data],
+        ).map_err(|e| e.to_string())?;
+    }
+    
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            use tauri::Manager;
             start_hotkey_listener(app.handle().clone());
+            
+            // Locate or create the AppData folder
+            let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
+                std::env::current_dir().unwrap()
+            });
+            std::fs::create_dir_all(&app_data_dir).ok();
+            
+            let db_path = app_data_dir.join("autoclick.db");
+            let config_path = app_data_dir.join("config.json");
+            
+            // Initialize database - ALWAYS run schema script to update tables
+            let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+            let schema_sql = include_str!("../schema.sql");
+            conn.execute_batch(schema_sql).map_err(|e| e.to_string())?;
+
+            // Dynamic column migrations for flows table: zoom, viewport_x, viewport_y
+            let _ = conn.execute("ALTER TABLE flows ADD COLUMN zoom REAL DEFAULT 1.0", []);
+            let _ = conn.execute("ALTER TABLE flows ADD COLUMN viewport_x REAL DEFAULT 0.0", []);
+            let _ = conn.execute("ALTER TABLE flows ADD COLUMN viewport_y REAL DEFAULT 0.0", []);
+            
+            // Initialize config file
+            if !config_path.exists() {
+                let default_config = AppConfig::default();
+                let config_str = serde_json::to_string_pretty(&default_config).unwrap_or_default();
+                std::fs::write(&config_path, config_str).ok();
+            }
+            
+            app.manage(AppState {
+                db_path,
+                config_path,
+            });
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -504,7 +874,22 @@ pub fn run() {
             show_app_window,
             run_python_script,
             run_db_helper,
-            capture_coordinate_loop
+            capture_coordinate_loop,
+            // New commands
+            list_flows,
+            create_flow,
+            get_flow,
+            update_flow,
+            delete_flow,
+            list_credentials,
+            create_credential,
+            update_credential,
+            delete_credential,
+            get_settings,
+            save_settings,
+            // Flow graph persistence
+            get_flow_data,
+            save_flow_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

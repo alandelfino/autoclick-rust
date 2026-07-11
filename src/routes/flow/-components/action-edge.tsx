@@ -47,17 +47,14 @@ const ActionEdge = ({
                 <BaseEdge
                     path={edgePath}
                     markerEnd={markerEnd}
-                    style={{
-                        strokeWidth: 2,
-                        ...style,
-                    }}
+                    style={style}
                     interactionWidth={28}
                 />
             </g>
 
             <EdgeLabelRenderer>
                 <div
-                    className={`nodrag nopan absolute flex -translate-x-1/2 -translate-y-1/2 gap-2 transition-opacity duration-150 ${isHovered ? 'opacity-100' : 'opacity-0'}`}
+                    className={`nodrag nopan absolute flex items-center justify-center gap-[2px] transition-opacity duration-150 ${isHovered ? 'opacity-100' : 'opacity-0'}`}
                     style={{
                         transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
                         pointerEvents: isHovered ? 'all' : 'none',
@@ -72,23 +69,23 @@ const ActionEdge = ({
                 >
                     <button
                         type='button'
-                        className='flex size-9 items-center justify-center rounded-md border bg-white text-neutral-800 shadow-sm transition hover:bg-neutral-50'
+                        className='flex size-5 items-center justify-center rounded-xs border bg-white text-neutral-400 transition hover:bg-neutral-50 hover:text-neutral-800 hover:border-neutral-600'
                         onClick={(event) => {
                             event.stopPropagation();
                             edgeData?.onInsertNode?.(id);
                         }}
                     >
-                        <PlusIcon className='size-5' />
+                        <PlusIcon className='size-3' />
                     </button>
                     <button
                         type='button'
-                        className='flex size-9 items-center justify-center rounded-md border bg-white text-neutral-800 shadow-sm transition hover:bg-red-50 hover:text-red-600'
+                        className='flex size-5 items-center justify-center rounded-xs border bg-white text-neutral-400 transition hover:bg-red-50 hover:text-red-600 hover:border-red-600'
                         onClick={(event) => {
                             event.stopPropagation();
                             edgeData?.onDeleteEdge?.(id);
                         }}
                     >
-                        <Trash2Icon className='size-5' />
+                        <Trash2Icon className='size-3' />
                     </button>
                 </div>
             </EdgeLabelRenderer>

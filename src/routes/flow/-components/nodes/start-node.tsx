@@ -1,16 +1,16 @@
 import { Position } from '@xyflow/react'; // Nota: A partir da v12, o pacote mudou para @xyflow/react
 import { memo, type MouseEvent as ReactMouseEvent } from 'react';
-import { Card, CardContent } from '../../../components/ui/card';
+import { Card, CardContent } from '../../../../components/ui/card';
 import { PlayIcon, PlusIcon } from 'lucide-react';
-import CustomOutputHandle from './output-handle';
+import CustomOutputHandle from '../handles/output-handle';
 
-const startNode = ({ id, data }: { id?: string, data?: { hasOutgoingConnection?: boolean, connectingSourceNodeId?: string | null, onAddNext?: (sourceNodeId: string) => void } }) => {
+const startNode = ({ id, data, selected }: { id?: string, selected?: boolean, data?: { hasOutgoingConnection?: boolean, connectingSourceNodeId?: string | null, onAddNext?: (sourceNodeId: string) => void } }) => {
     const showAddNextPointer = id && !data?.hasOutgoingConnection;
     const isConnectingFromPointer = showAddNextPointer && data?.connectingSourceNodeId === id;
 
     return (
         <div className='relative w-24 h-24'>
-            <Card className='rounded-2xl rounded-l-[100%] w-24 h-24 border-neutral-300 overflow-visible'>
+            <Card className={`rounded-2xl rounded-l-[100%] w-24 h-24 overflow-visible transition-all duration-150 ${selected ? 'ring-4 ring-sky-200 border-sky-500 shadow-md scale-105 z-10' : 'border-neutral-300'}`}>
                 <CardContent className='flex items-center justify-center w-full h-full gap-2'>
                     <PlayIcon className='size-10 text-green-600' />
 

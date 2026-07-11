@@ -8,11 +8,13 @@ export const Route = createFileRoute('/dashboard')({
 
 function RouteComponent() {
     return (
-        <SidebarProvider className="h-full">
-            <AppSidebar />
-            <SidebarInset>
-                <Outlet />
-            </SidebarInset>
-        </SidebarProvider>
+        <main className="border-t h-screen">
+            <SidebarProvider className="h-full">
+                <AppSidebar />
+                <SidebarInset>
+                    <Outlet />
+                </SidebarInset>
+            </SidebarProvider>
+        </main>
     )
 }
