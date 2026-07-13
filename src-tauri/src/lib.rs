@@ -821,6 +821,15 @@ fn save_flow_data(
     Ok(())
 }
 
+#[tauri::command]
+fn select_sqlite_file() -> Result<Option<String>, String> {
+    let file = rfd::FileDialog::new()
+        .add_filter("SQLite Database", &["db", "sqlite", "sqlite3", "db3"])
+        .pick_file();
+    
+    Ok(file.map(|p| p.to_string_lossy().to_string()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -889,7 +898,8 @@ pub fn run() {
             save_settings,
             // Flow graph persistence
             get_flow_data,
-            save_flow_data
+            save_flow_data,
+            select_sqlite_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,12 +1,14 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 
 import { Button } from '../../components/ui/button'
-import { addEdge, applyEdgeChanges, applyNodeChanges, Background, BackgroundVariant, MarkerType, ReactFlow, ReactFlowProvider, SelectionMode, useReactFlow, useViewport } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { addEdge, applyEdgeChanges, applyNodeChanges, Background, BackgroundVariant, MarkerType, ReactFlow, ReactFlowProvider, SelectionMode, useReactFlow, useViewport, MiniMap } from '@xyflow/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Separator } from '../../components/ui/separator'
 import { NodeEditorModal } from './-components/node-editor-modal'
+import { StickyNoteEditorModal } from './-components/sticky-note-editor-modal'
 import { useToast } from '../../hooks/use-toast'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog'
 import {
     ArrowBigDownDash,
     BadgeCheckIcon,
@@ -15,7 +17,6 @@ import {
     DatabaseBackupIcon,
     DatabaseIcon,
     DatabaseZapIcon,
-    Edit3Icon,
     FileCode2Icon,
     GitBranchIcon,
     GitForkIcon,
@@ -35,7 +36,6 @@ import {
     StepForwardIcon,
     StickyNotePlusIcon,
     TimerIcon,
-    Trash2Icon,
     TriangleAlertIcon,
     TypeIcon,
     VariableIcon,
@@ -43,9 +43,10 @@ import {
 } from 'lucide-react'
 import type { ComponentType, DragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../../components/ui/context-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuShortcut } from '../../components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip'
-import startNode from './-components/nodes/start-node'
+import triggerManuallyNode from './-components/nodes/trigger-manually-node'
+import triggerOnASchedulleNode from './-components/nodes/trigger-on-a-schedulle-node'
 import clickByCoordinatesNode from './-components/nodes/click-by-coordinates-node'
 import moveCursorNode from './-components/nodes/move-cursor-node'
 import keypressNode from './-components/nodes/keypress-node'
@@ -65,6 +66,7 @@ import variableNode from './-components/nodes/variable-node'
 import runJavascriptNode from './-components/nodes/run-javascript-node'
 import actionsDialogNode from './-components/nodes/actions-dialog-node'
 import alertDialogNode from './-components/nodes/alert-dialog-node'
+import stickNoteNode from './-components/nodes/stick-note'
 import actionEdge from './-components/action-edge'
 import logo from '../../assets/logo.png'
 
@@ -82,7 +84,8 @@ export const Route = createFileRoute('/flow/')({
 })
 
 const nodeTypes = {
-    startNode,
+    trigger_manually: triggerManuallyNode,
+    trigger_on_a_schedulle: triggerOnASchedulleNode,
     clickByCoordinatesNode,
     moveCursorNode,
     keypressNode,
@@ -102,6 +105,7 @@ const nodeTypes = {
     runJavascriptNode,
     actionsDialogNode,
     alertDialogNode,
+    stickNote: stickNoteNode,
 };
 
 const edgeTypes = {
@@ -135,7 +139,8 @@ const nodeCategories: NodeCategory[] = [
         colorClassName: 'text-teal-600',
         accentClassName: 'bg-teal-50 border-teal-100',
         nodes: [
-            { type: 'startNode', label: 'Start', description: 'Start your flow', category: 'Core', icon: PlayIcon },
+            { type: 'trigger_manually', label: 'Trigger manually', description: 'Trigger manual', category: 'Core', icon: PlayIcon },
+            { type: 'trigger_on_a_schedulle', label: 'Trigger on a schedule', description: 'Trigger by cron schedule', category: 'Core', icon: TimerIcon },
             { type: 'apiRequestNode', label: 'API Request', description: 'Make HTTP requests', category: 'Core', icon: CloudCogIcon },
             { type: 'variableNode', label: 'Variable', description: 'Create or update values', category: 'Core', icon: VariableIcon },
             { type: 'runJavascriptNode', label: 'Run Javascript', description: 'Execute custom code', category: 'Core', icon: FileCode2Icon },
@@ -197,15 +202,6 @@ const nodeCategories: NodeCategory[] = [
 
 const allNodeItems = nodeCategories.flatMap((category) => category.nodes);
 
-const initialNodes = [
-    { id: 'n1', position: { x: 0, y: 0 }, data: { label: 'Start' }, type: 'startNode' },
-    { id: 'n2', position: { x: 0, y: 100 }, data: { label: 'Click by coordinates' }, type: 'clickByCoordinatesNode' },
-    { id: 'n3', position: { x: 0, y: 200 }, data: { label: 'Move cursor' }, type: 'moveCursorNode' },
-    { id: 'n4', position: { x: 0, y: 300 }, data: { label: 'Key press' }, type: 'keypressNode' },
-    { id: 'n5', position: { x: 0, y: 400 }, data: { label: 'Type text' }, type: 'typeTextNode' },
-];
-const initialEdges = [{ id: 'n1-n2', source: 'n1', target: 'n2', type: 'actionEdge' }];
-
 function RouteComponent() {
     const { id } = Route.useSearch();
     return (
@@ -225,12 +221,111 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [pendingSourceNodeId, setPendingSourceNodeId] = useState<string | null>(null);
+    const [pendingSourceHandleId, setPendingSourceHandleId] = useState<string | null>(null);
     const [pendingInsertEdgeId, setPendingInsertEdgeId] = useState<string | null>(null);
     const [connectingSourceNodeId, setConnectingSourceNodeId] = useState<string | null>(null);
-    const { screenToFlowPosition, setViewport, getViewport } = useReactFlow();
+    const [connectingSourceHandleId, setConnectingSourceHandleId] = useState<string | null>(null);
+    const { screenToFlowPosition, setViewport, getViewport, setCenter } = useReactFlow();
+
+    const [clipboardNode, setClipboardNode] = useState<any>(null);
+    const mouseRef = useRef({ x: 0, y: 0 });
+    const [renamingNode, setRenamingNode] = useState<any>(null);
+    const [renameInputValue, setRenameInputValue] = useState<string>('');
 
     const [flowName, setFlowName] = useState("Carregando fluxo...");
     const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
+
+    // Canvas empty flag
+    const isCanvasEmpty = nodes.length === 0;
+
+    // Sticky Note adder
+    const addStickNote = useCallback(() => {
+        const id = `stickNote_${Date.now()}`;
+        const viewport = getViewport();
+        const x = (window.innerWidth / 2 - viewport.x) / viewport.zoom - 130;
+        const y = (window.innerHeight / 2 - viewport.y) / viewport.zoom - 80;
+        
+        const newNode = {
+            id,
+            type: 'stickNote',
+            position: { x, y },
+            style: { width: 260, height: 160 },
+            data: {
+                label: "I'm a note",
+                description: "Double click to edit me. Guide",
+            },
+        };
+        setNodes((nds) => nds.concat(newNode));
+    }, [getViewport, setNodes]);
+
+    // Search Node states and handlers
+    const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    const matchingNodes = useMemo(() => {
+        if (!searchQuery.trim()) return [];
+        const query = searchQuery.toLowerCase();
+        return nodes.filter(n => {
+            const label = n.data?.label || n.type || '';
+            return label.toLowerCase().includes(query);
+        });
+    }, [nodes, searchQuery]);
+    
+    const handleSelectSearchedNode = useCallback((nodeId: string) => {
+        const node = nodes.find(n => n.id === nodeId);
+        if (node) {
+            const x = node.position.x + (node.measured?.width ?? 260) / 2;
+            const y = node.position.y + (node.measured?.height ?? 160) / 2;
+            setCenter(x, y, { zoom: 1.2, duration: 800 });
+            
+            setNodes((nds) => nds.map((n) => ({
+                ...n,
+                selected: n.id === nodeId,
+            })));
+            
+            setIsSearchModalOpen(false);
+            setSearchQuery('');
+        }
+    }, [nodes, setCenter, setNodes]);
+
+    // Flow name editing state and handlers
+    const [isEditingName, setIsEditingName] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+    
+    const handleNameClick = () => {
+        setIsEditingName(true);
+        setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }, 50);
+    };
+    
+    const handleFlowNameBlur = async (newName: string) => {
+        setIsEditingName(false);
+        const trimmed = newName.trim();
+        if (!trimmed || trimmed === flowName) return;
+        
+        setFlowName(trimmed);
+        
+        if (autoSaveEnabled) {
+            try {
+                await invoke("update_flow", { id: flowId, name: trimmed });
+                toast({
+                    title: "Nome atualizado!",
+                    description: "O nome do fluxo foi atualizado automaticamente.",
+                    variant: "success",
+                });
+            } catch (err) {
+                console.error("Failed to auto-update flow name:", err);
+                toast({
+                    title: "Erro ao atualizar nome!",
+                    description: "Não foi possível atualizar o nome automaticamente.",
+                    variant: "destructive",
+                });
+            }
+        }
+    };
+
     const [viewportTrigger, setViewportTrigger] = useState(0);
     const [connectionStyle, setConnectionStyle] = useState({
         strokeWidth: 2,
@@ -294,6 +389,7 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                             id: n.id,
                             type: n.type,
                             position: { x: n.x, y: n.y },
+                            style: parsedData.style || (n.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
                             data: {
                                 label: n.label,
                                 alias: parsedData.alias || n.id.replace(/-/g, '_'),
@@ -316,8 +412,8 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                     setNodes(mappedNodes);
                     setEdges(mappedEdges);
                 } else {
-                    setNodes(initialNodes);
-                    setEdges(initialEdges);
+                    setNodes([]);
+                    setEdges([]);
                 }
 
                 // Restore viewport position and zoom
@@ -330,8 +426,8 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                 }, 50);
             } catch (err) {
                 console.error("Failed to load flow data:", err);
-                setNodes(initialNodes);
-                setEdges(initialEdges);
+                setNodes([]);
+                setEdges([]);
             } finally {
                 setIsLoading(false);
             }
@@ -356,7 +452,8 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                     data: JSON.stringify({
                         alias: n.data?.alias || n.id.replace(/-/g, '_'),
                         parameters: n.data?.parameters || {},
-                        output: n.data?.output || null
+                        output: n.data?.output || null,
+                        style: n.style || undefined
                     })
                 }));
 
@@ -394,6 +491,423 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
     const onMoveEnd = useCallback(() => {
         setViewportTrigger(prev => prev + 1);
+    }, []);
+
+    const copyNode = useCallback((node: any) => {
+        if (!node) return;
+        setClipboardNode(node);
+        toast({
+            title: "Node copiado!",
+            description: `"${node.data?.label || node.type}" copiado para a área de transferência.`,
+        });
+    }, [toast]);
+
+    const pasteNode = useCallback((clientX?: number, clientY?: number) => {
+        if (!clipboardNode) return;
+
+        const isTrigger = clipboardNode.type === 'trigger_manually' || clipboardNode.type === 'trigger_on_a_schedulle';
+        if (isTrigger) {
+            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+            if (hasTrigger) {
+                toast({
+                    title: "Erro ao colar",
+                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                    variant: "destructive"
+                });
+                return;
+            }
+        }
+
+        const x = clientX ?? mouseRef.current.x;
+        const y = clientY ?? mouseRef.current.y;
+
+        const position = screenToFlowPosition({ x, y }, { snapToGrid: true, snapGrid: [20, 20] });
+        const newNodeId = `${clipboardNode.type}-${crypto.randomUUID()}`;
+
+        const label = `${clipboardNode.data?.label || clipboardNode.type} (Copy)`;
+        const alias = `${clipboardNode.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+
+        setNodes((prevNodes) => [
+            ...prevNodes,
+            {
+                id: newNodeId,
+                type: clipboardNode.type,
+                position,
+                style: clipboardNode.style || (clipboardNode.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                data: {
+                    ...clipboardNode.data,
+                    label,
+                    alias,
+                    output: null,
+                },
+            },
+        ]);
+
+        toast({
+            title: "Node colado!",
+            description: `Novo node criado a partir de "${clipboardNode.data?.label || clipboardNode.type}".`,
+            variant: "success",
+        });
+    }, [clipboardNode, screenToFlowPosition, toast, nodes]);
+
+    const pasteBefore = useCallback((targetNode: any) => {
+        if (!clipboardNode || !targetNode) return;
+
+        const isTrigger = clipboardNode.type === 'trigger_manually' || clipboardNode.type === 'trigger_on_a_schedulle';
+        if (isTrigger) {
+            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+            if (hasTrigger) {
+                toast({
+                    title: "Erro ao colar",
+                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                    variant: "destructive"
+                });
+                return;
+            }
+        }
+
+        const newNodeId = `${clipboardNode.type}-${crypto.randomUUID()}`;
+        const label = `${clipboardNode.data?.label || clipboardNode.type} (Copy)`;
+        const alias = `${clipboardNode.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+
+        const position = {
+            x: targetNode.position.x - 180,
+            y: targetNode.position.y,
+        };
+
+        setNodes((prev) => [
+            ...prev,
+            {
+                id: newNodeId,
+                type: clipboardNode.type,
+                position,
+                style: clipboardNode.style || (clipboardNode.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                data: {
+                    ...clipboardNode.data,
+                    label,
+                    alias,
+                    output: null,
+                },
+            },
+        ]);
+
+        setEdges((prevEdges) => {
+            const incomingEdges = prevEdges.filter((e) => e.target === targetNode.id);
+            const otherEdges = prevEdges.filter((e) => e.target !== targetNode.id);
+
+            const modifiedIncoming = incomingEdges.map((e) => ({
+                ...e,
+                target: newNodeId,
+                id: `${e.source}-${newNodeId}`,
+            }));
+
+            const newEdge = {
+                id: `${newNodeId}-${targetNode.id}`,
+                source: newNodeId,
+                target: targetNode.id,
+                type: 'actionEdge',
+            };
+
+            return [...otherEdges, ...modifiedIncoming, newEdge];
+        });
+
+        toast({
+            title: "Node colado antes",
+            description: `Inserido antes de "${targetNode.data?.label || targetNode.type}".`,
+            variant: "success",
+        });
+    }, [clipboardNode, toast, nodes]);
+
+    const pasteAfter = useCallback((targetNode: any) => {
+        if (!clipboardNode || !targetNode) return;
+
+        const isTrigger = clipboardNode.type === 'trigger_manually' || clipboardNode.type === 'trigger_on_a_schedulle';
+        if (isTrigger) {
+            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+            if (hasTrigger) {
+                toast({
+                    title: "Erro ao colar",
+                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                    variant: "destructive"
+                });
+                return;
+            }
+        }
+
+        const newNodeId = `${clipboardNode.type}-${crypto.randomUUID()}`;
+        const label = `${clipboardNode.data?.label || clipboardNode.type} (Copy)`;
+        const alias = `${clipboardNode.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+
+        const position = {
+            x: targetNode.position.x + 180,
+            y: targetNode.position.y,
+        };
+
+        setNodes((prev) => [
+            ...prev,
+            {
+                id: newNodeId,
+                type: clipboardNode.type,
+                position,
+                style: clipboardNode.style || (clipboardNode.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                data: {
+                    ...clipboardNode.data,
+                    label,
+                    alias,
+                    output: null,
+                },
+            },
+        ]);
+
+        setEdges((prevEdges) => {
+            const outgoingEdges = prevEdges.filter((e) => e.source === targetNode.id);
+            const otherEdges = prevEdges.filter((e) => e.source !== targetNode.id);
+
+            const modifiedOutgoing = outgoingEdges.map((e) => ({
+                ...e,
+                source: newNodeId,
+                id: `${newNodeId}-${e.target}`,
+            }));
+
+            const newEdge = {
+                id: `${targetNode.id}-${newNodeId}`,
+                source: targetNode.id,
+                target: newNodeId,
+                type: 'actionEdge',
+            };
+
+            return [...otherEdges, ...modifiedOutgoing, newEdge];
+        });
+
+        toast({
+            title: "Node colado depois",
+            description: `Inserido depois de "${targetNode.data?.label || targetNode.type}".`,
+            variant: "success",
+        });
+    }, [clipboardNode, toast, nodes]);
+
+    const duplicateNode = useCallback((node: any) => {
+        if (!node) return;
+        const isTrigger = node.type === 'trigger_manually' || node.type === 'trigger_on_a_schedulle';
+        if (isTrigger) {
+            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+            if (hasTrigger) {
+                toast({
+                    title: "Erro ao duplicar",
+                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                    variant: "destructive"
+                });
+                return;
+            }
+        }
+
+        const newNodeId = `${node.type}-${crypto.randomUUID()}`;
+        const position = {
+            x: node.position.x + 50,
+            y: node.position.y + 50,
+        };
+        const label = `${node.data?.label || node.type} (Copy)`;
+        const alias = `${node.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+
+        setNodes((prev) => [
+            ...prev,
+            {
+                id: newNodeId,
+                type: node.type,
+                position,
+                style: node.style || (node.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                data: {
+                    ...node.data,
+                    label,
+                    alias,
+                    output: null,
+                },
+            },
+        ]);
+        toast({
+            title: "Node duplicado!",
+            description: `Duplicado com sucesso.`,
+            variant: "success",
+        });
+    }, [toast, nodes]);
+
+    const renameNode = useCallback((node: any) => {
+        if (!node) return;
+        setRenamingNode(node);
+        setRenameInputValue(node.data?.label || node.type);
+    }, []);
+
+    const handleSaveRename = useCallback(() => {
+        if (!renamingNode) return;
+        const trimmed = renameInputValue.trim();
+        if (!trimmed) {
+            toast({ title: "Erro", description: "Nome inválido.", variant: "destructive" });
+            return;
+        }
+
+        setNodes((prev) =>
+            prev.map((n) => {
+                if (n.id === renamingNode.id) {
+                    return {
+                        ...n,
+                        data: {
+                            ...n.data,
+                            label: trimmed,
+                            alias: trimmed.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+                        },
+                    };
+                }
+                return n;
+            })
+        );
+        toast({ title: "Node renomeado", description: `Renomeado para "${trimmed}".`, variant: "success" });
+        setRenamingNode(null);
+    }, [renamingNode, renameInputValue, toast]);
+
+    const executeStep = useCallback((node: any) => {
+        let mockOutput: any = {};
+        const params = node.data?.parameters || {};
+
+        switch (node.type) {
+            case "clickByCoordinatesNode":
+                mockOutput = {
+                    action: "click",
+                    coordinates: { x: Number(params.x) || 100, y: Number(params.y) || 200 },
+                    timestamp: new Date().toISOString(),
+                };
+                break;
+            case "moveCursorNode":
+                mockOutput = {
+                    action: "move",
+                    coordinates: { x: Number(params.x) || 0, y: Number(params.y) || 0 },
+                    timestamp: new Date().toISOString(),
+                };
+                break;
+            case "keypressNode":
+                mockOutput = {
+                    action: "key_press",
+                    key: params.key || "enter",
+                    count: Number(params.count) || 1,
+                    timestamp: new Date().toISOString(),
+                };
+                break;
+            case "typeTextNode":
+                mockOutput = {
+                    action: "type",
+                    text: params.text || "",
+                    charCount: (params.text || "").length,
+                    timestamp: new Date().toISOString(),
+                };
+                break;
+            case "delayNode":
+                mockOutput = {
+                    action: "wait",
+                    ms: Number(params.ms) || 1000,
+                    status: "completed",
+                };
+                break;
+            case "loopNode":
+                mockOutput = {
+                    action: "loop_start",
+                    iterations: Number(params.iterations) || 10,
+                    currentIndex: 0,
+                };
+                break;
+            case "apiRequestNode":
+                mockOutput = {
+                    status: 200,
+                    statusText: "OK",
+                    method: params.method || "GET",
+                    url: params.url || "https://api.example.com/data",
+                    data: {
+                        id: Math.floor(Math.random() * 1000),
+                        message: "Dados de resposta da API simulados com sucesso!",
+                        received_body: params.body || null,
+                    },
+                };
+                break;
+            case "sqliteQueryNode":
+            case "postgresqlQueryNode":
+            case "mysqlQueryNode":
+                mockOutput = {
+                    success: true,
+                    query: params.query || "",
+                    connection_id: params.connection || "default",
+                    records: [
+                        { id: 1, name: "Item A", description: "Record mock from DB" },
+                        { id: 2, name: "Item B", description: "Record mock from DB" },
+                    ],
+                };
+                break;
+            case "variableNode":
+                mockOutput = {
+                    variable: params.name || "my_variable",
+                    value: params.value || "",
+                    type: typeof params.value,
+                };
+                break;
+            case "runJavascriptNode":
+                mockOutput = {
+                    success: true,
+                    result: "Javascript evaluated successfully",
+                    timestamp: new Date().toISOString(),
+                };
+                break;
+            case "actionsDialogNode":
+            case "alertDialogNode":
+                mockOutput = {
+                    dialog_shown: true,
+                    message: params.message || "",
+                    user_response: "ok",
+                };
+                break;
+            default:
+                mockOutput = {
+                    status: "executed",
+                    timestamp: new Date().toISOString(),
+                };
+        }
+
+        setNodes((prev) =>
+            prev.map((n) => {
+                if (n.id === node.id) {
+                    return {
+                        ...n,
+                        data: {
+                            ...n.data,
+                            output: mockOutput,
+                        },
+                    };
+                }
+                return n;
+            })
+        );
+
+        toast({
+            title: "Passo executado!",
+            description: `Simulação concluída para o node "${node.data?.label || node.type}".`,
+            variant: "success",
+        });
+    }, [toast]);
+
+    const deleteNode = useCallback((nodeId: string) => {
+        setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+        setEdges((prev) => prev.filter((e) => e.source !== nodeId && e.target !== nodeId));
+        toast({ title: "Node excluído", description: "Node removido com sucesso." });
+    }, [toast]);
+
+    const deleteSelected = useCallback(() => {
+        setNodes((prev) => prev.filter((n) => !n.selected));
+        setEdges((prev) => prev.filter((e) => !e.selected));
+        toast({ title: "Seleção excluída", description: "Itens selecionados removidos com sucesso." });
+    }, [toast]);
+
+    const selectAll = useCallback(() => {
+        setNodes((prev) => prev.map((n) => ({ ...n, selected: true })));
+    }, []);
+
+    const clearSelection = useCallback(() => {
+        setNodes((prev) => prev.map((n) => ({ ...n, selected: false })));
     }, []);
 
     const handleSaveNodeDetails = (nodeId: string, name: string, alias: string, parameters: any, output: any) => {
@@ -435,8 +949,9 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
             .filter((category) => category.nodes.length > 0);
     }, [searchTerm]);
 
-    const openNodePickerFromNode = useCallback((sourceNodeId: string) => {
+    const openNodePickerFromNode = useCallback((sourceNodeId: string, sourceHandleId?: string) => {
         setPendingSourceNodeId(sourceNodeId);
+        setPendingSourceHandleId(sourceHandleId ?? null);
         setPendingInsertEdgeId(null);
         setIsSidebarOpen(true);
     }, []);
@@ -451,17 +966,143 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
         setIsSidebarOpen(true);
     }, []);
 
+    const selectSingleNode = useCallback((nodeId: string) => {
+        setNodes((prev) =>
+            prev.map((n) => ({
+                ...n,
+                selected: n.id === nodeId,
+            }))
+        );
+    }, []);
+
     const renderedNodes = useMemo(() => {
         return nodes.map((node) => ({
             ...node,
+            zIndex: node.type === 'stickNote' ? -10 : 1,
             data: {
                 ...node.data,
                 hasOutgoingConnection: edges.some((edge) => edge.source === node.id),
+                connectedSourceHandles: edges.filter((edge) => edge.source === node.id).map((edge) => edge.sourceHandle ?? 'b'),
                 connectingSourceNodeId,
+                connectingSourceHandleId,
                 onAddNext: openNodePickerFromNode,
+                clipboardNodeExists: !!clipboardNode,
+                onSelect: () => selectSingleNode(node.id),
+                onOpen: () => setEditingNode(node),
+                onExecuteStep: () => executeStep(node),
+                onRename: () => renameNode(node),
+                onCopy: () => copyNode(node),
+                onDuplicate: () => duplicateNode(node),
+                onPasteBefore: () => pasteBefore(node),
+                onPasteAfter: () => pasteAfter(node),
+                onSelectAll: selectAll,
+                onClearSelection: clearSelection,
+                onDelete: () => deleteNode(node.id),
             },
         }));
-    }, [connectingSourceNodeId, edges, nodes, openNodePickerFromNode]);
+    }, [
+        connectingSourceNodeId,
+        connectingSourceHandleId,
+        edges,
+        nodes,
+        openNodePickerFromNode,
+        clipboardNode,
+        executeStep,
+        renameNode,
+        copyNode,
+        duplicateNode,
+        pasteBefore,
+        pasteAfter,
+        selectAll,
+        clearSelection,
+        deleteNode,
+        selectSingleNode,
+    ]);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            const activeEl = document.activeElement;
+            const isEditing = activeEl && (
+                activeEl.tagName === 'INPUT' ||
+                activeEl.tagName === 'TEXTAREA' ||
+                activeEl.tagName === 'SELECT' ||
+                activeEl.getAttribute('contenteditable') === 'true'
+            );
+
+            if (isEditing) return;
+
+            const selectedNode = nodes.find(n => n.selected);
+
+            if (event.key === 'Enter') {
+                if (selectedNode) {
+                    event.preventDefault();
+                    setEditingNode(selectedNode);
+                }
+            }
+
+            if (event.key === ' ') {
+                if (selectedNode) {
+                    event.preventDefault();
+                    renameNode(selectedNode);
+                }
+            }
+
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
+                if (selectedNode) {
+                    event.preventDefault();
+                    executeStep(selectedNode);
+                }
+            }
+
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+                if (selectedNode) {
+                    event.preventDefault();
+                    copyNode(selectedNode);
+                }
+            }
+
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+                if (selectedNode) {
+                    event.preventDefault();
+                    duplicateNode(selectedNode);
+                }
+            }
+
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+                event.preventDefault();
+                pasteNode();
+            }
+
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+                event.preventDefault();
+                selectAll();
+            }
+
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                clearSelection();
+            }
+
+            if (event.key === 'Delete' || event.key === 'Backspace') {
+                event.preventDefault();
+                deleteSelected();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [
+        nodes,
+        copyNode,
+        pasteNode,
+        renameNode,
+        executeStep,
+        selectAll,
+        clearSelection,
+        deleteSelected,
+    ]);
 
     const renderedEdges = useMemo(() => {
         return edges.map((edge) => ({
@@ -487,6 +1128,20 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
     }, [deleteEdge, edges, openNodePickerFromEdge, connectionStyle]);
 
     const createNode = useCallback((type: NodeTypeName, clientX?: number, clientY?: number, sourceNodeId?: string | null, insertEdgeId?: string | null) => {
+        // Block duplicate trigger nodes
+        const isTrigger = type === 'trigger_manually' || type === 'trigger_on_a_schedulle';
+        if (isTrigger) {
+            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+            if (hasTrigger) {
+                toast({
+                    title: "Erro ao adicionar node",
+                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                    variant: "destructive"
+                });
+                return;
+            }
+        }
+
         const item = allNodeItems.find((node) => node.type === type);
         const sourceNode = sourceNodeId ? nodes.find((node) => node.id === sourceNodeId) : undefined;
         const insertEdge = insertEdgeId ? edges.find((edge) => edge.id === insertEdgeId) : undefined;
@@ -537,12 +1192,19 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
         ]);
 
         if (sourceNodeId) {
-            setEdges((edgesSnapshot) => addEdge({
-                id: `${sourceNodeId}-${newNodeId}`,
-                source: sourceNodeId,
-                target: newNodeId,
-                type: 'actionEdge',
-            }, edgesSnapshot));
+            setEdges((edgesSnapshot) => {
+                const sourceHandle = pendingSourceHandleId || undefined;
+                const filtered = edgesSnapshot.filter(
+                    (edge) => !(edge.source === sourceNodeId && edge.sourceHandle === sourceHandle)
+                );
+                return addEdge({
+                    id: `${sourceNodeId}-${newNodeId}`,
+                    source: sourceNodeId,
+                    sourceHandle,
+                    target: newNodeId,
+                    type: 'actionEdge',
+                }, filtered);
+            });
         }
 
         if (insertEdge) {
@@ -562,7 +1224,7 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                 },
             ]);
         }
-    }, [edges, nodes, screenToFlowPosition]);
+    }, [edges, nodes, screenToFlowPosition, pendingSourceHandleId]);
 
     const onNodesChange = useCallback(
         (changes: any) => setNodes((nodesSnapshot) => applyNodeChanges(changes, nodesSnapshot)),
@@ -574,24 +1236,31 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
     );
     const onConnect = useCallback(
         (params: any) => {
+            const sourceHandle = params.sourceHandle === 'add-next' ? undefined : params.sourceHandle;
             const normalizedParams = {
                 ...params,
-                sourceHandle: params.sourceHandle === 'add-next' ? undefined : params.sourceHandle,
+                sourceHandle,
                 type: 'actionEdge',
             };
 
-            setEdges((edgesSnapshot) => addEdge(normalizedParams, edgesSnapshot));
+            setEdges((edgesSnapshot) => {
+                const filtered = edgesSnapshot.filter(
+                    (edge) => !(edge.source === params.source && edge.sourceHandle === sourceHandle)
+                );
+                return addEdge(normalizedParams, filtered);
+            });
             setConnectingSourceNodeId(null);
+            setConnectingSourceHandleId(null);
         },
         [],
     );
-    const onConnectStart = useCallback((_event: any, params: any) => {
-        if (params?.handleId === 'add-next') {
-            setConnectingSourceNodeId(params.nodeId ?? null);
-        }
+    const onConnectStart = useCallback((_event: any, { nodeId, handleId }: any) => {
+        setConnectingSourceNodeId(nodeId ?? null);
+        setConnectingSourceHandleId(handleId ?? null);
     }, []);
     const onConnectEnd = useCallback(() => {
         setConnectingSourceNodeId(null);
+        setConnectingSourceHandleId(null);
     }, []);
     const onDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
         event.preventDefault();
@@ -609,6 +1278,7 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
         createNode(type, event.clientX, event.clientY, pendingSourceNodeId, pendingInsertEdgeId);
         setPendingSourceNodeId(null);
+        setPendingSourceHandleId(null);
         setPendingInsertEdgeId(null);
         setIsSidebarOpen(false);
     }, [createNode, pendingInsertEdgeId, pendingSourceNodeId]);
@@ -616,11 +1286,13 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
         event.preventDefault();
         createNode(type, undefined, undefined, pendingSourceNodeId, pendingInsertEdgeId);
         setPendingSourceNodeId(null);
+        setPendingSourceHandleId(null);
         setPendingInsertEdgeId(null);
         setIsSidebarOpen(false);
     }, [createNode, pendingInsertEdgeId, pendingSourceNodeId]);
     const closeNodePicker = useCallback(() => {
         setPendingSourceNodeId(null);
+        setPendingSourceHandleId(null);
         setPendingInsertEdgeId(null);
         setIsSidebarOpen(false);
     }, []);
@@ -637,7 +1309,8 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                 data: JSON.stringify({
                     alias: n.data?.alias || n.id.replace(/-/g, '_'),
                     parameters: n.data?.parameters || {},
-                    output: n.data?.output || null
+                    output: n.data?.output || null,
+                    style: n.style || undefined
                 })
             }));
 
@@ -652,6 +1325,9 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
             }));
 
             const { x: vx, y: vy, zoom: vz } = getViewport();
+
+            // Save flow name
+            await invoke("update_flow", { id: flowId, name: flowName });
 
             await invoke("save_flow_data", {
                 flowId,
@@ -691,10 +1367,28 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
                 <Separator orientation="vertical" className='h-9 my-auto' />
 
-                <div className='w-full'>
-                    <span className='text-md font-semibold text-neutral-800'>{flowName}</span>
-                    <p className='text-xs text-neutral-400'>ID: {flowId || "N/A"}</p>
+                <div className='w-full flex flex-col items-start'>
+                    <input
+                        ref={inputRef}
+                        disabled={!isEditingName}
+                        value={flowName}
+                        onChange={(e) => setFlowName(e.target.value)}
+                        onBlur={() => handleFlowNameBlur(flowName)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                inputRef.current?.blur();
+                            }
+                        }}
+                        className={`text-md font-semibold text-neutral-800 bg-transparent border rounded-md px-1.5 py-0.5 outline-none transition-all duration-150 ${
+                            isEditingName 
+                                ? 'border-neutral-300 bg-white ring-2 ring-teal-500/10' 
+                                : 'border-transparent hover:border-neutral-200 cursor-pointer'
+                        }`}
+                        onClick={!isEditingName ? handleNameClick : undefined}
+                    />
+                    <p className='text-xs text-neutral-400 pl-1.5'>ID: {flowId || "N/A"}</p>
                 </div>
+
 
                 <div className='flex items-center gap-2 min-w-fit'>
                     <div>
@@ -730,7 +1424,12 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
             </div>
 
             {/* ReactFlow Canvas container */}
-            <div className='flex-1 min-h-0 relative'>
+            <div
+                className='flex-1 min-h-0 relative'
+                onMouseMove={(e) => {
+                    mouseRef.current = { x: e.clientX, y: e.clientY };
+                }}
+            >
                 <ContextMenu>
                     <ContextMenuTrigger className='h-full w-full block'>
                         <ReactFlow
@@ -752,9 +1451,11 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                             nodeTypes={nodeTypes}
                             edgeTypes={edgeTypes}
                             className="flow-canvas"
-                            zoomOnScroll={true}
+                            zoomOnScroll={!isCanvasEmpty}
                             panOnScroll={false}
-                            panOnDrag={true}
+                            panOnDrag={!isCanvasEmpty}
+                            zoomOnPinch={!isCanvasEmpty}
+                            zoomOnDoubleClick={!isCanvasEmpty}
                             panActivationKeyCode="Control"
                             selectionOnDrag={true}
                             selectionMode={SelectionMode.Partial}
@@ -765,9 +1466,12 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                             fitView
                             minZoom={zoomLimits.minZoom}
                             maxZoom={zoomLimits.maxZoom}
+
                         >
                             <Background bgColor='#f5f5f5' color="#b1b1b7" variant={BackgroundVariant.Dots} gap={16} />
                             <CanvasControls />
+                            <MiniMap zoomable pannable position="bottom-left" style={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #e5e5e5' }} />
+
 
                             <NodePickerSidebar
                                 isOpen={isSidebarOpen}
@@ -798,7 +1502,7 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <Button variant='outline' className="size-8 rounded-sm">
+                                        <Button variant='outline' className="size-8 rounded-sm" onClick={() => setIsSearchModalOpen(true)}>
                                             <SearchIcon />
                                         </Button>
                                     </TooltipTrigger>
@@ -809,7 +1513,7 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <Button variant='outline' className="size-8 rounded-sm">
+                                        <Button variant='outline' className="size-8 rounded-sm" onClick={addStickNote}>
                                             <StickyNotePlusIcon />
                                         </Button>
                                     </TooltipTrigger>
@@ -817,28 +1521,156 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
                                         <p>Add a stick note</p>
                                     </TooltipContent>
                                 </Tooltip>
+
                             </div>
                         </ReactFlow>
 
+                        {isCanvasEmpty && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
+                                <div className="flex flex-col items-center pointer-events-auto bg-transparent p-6 rounded-lg">
+                                    <button
+                                        onClick={() => setIsSidebarOpen(true)}
+                                        className="w-24 h-24 bg-white border-2 border-dashed border-neutral-300 hover:border-teal-500 hover:text-teal-600 rounded-2xl flex items-center justify-center text-neutral-400 hover:scale-105 transition-all shadow-sm cursor-pointer"
+                                    >
+                                        <PlusIcon className="size-8" />
+                                    </button>
+                                    <span className="mt-3 text-sm font-semibold text-neutral-500 hover:text-teal-600 cursor-pointer" onClick={() => setIsSidebarOpen(true)}>
+                                        Add trigger step
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
+
                         <NodeEditorModal
-                            open={editingNode !== null}
+                            open={editingNode !== null && editingNode.type !== 'stickNote'}
                             onOpenChange={(open) => !open && setEditingNode(null)}
                             node={editingNode}
                             allNodes={nodes}
                             allEdges={edges}
                             onSave={handleSaveNodeDetails}
                         />
+
+                        <StickyNoteEditorModal
+                            open={editingNode !== null && editingNode.type === 'stickNote'}
+                            onOpenChange={(open) => !open && setEditingNode(null)}
+                            node={editingNode}
+                            onSave={(nodeId, label, description) => {
+                                setNodes(prev => prev.map(n => {
+                                    if (n.id === nodeId) {
+                                        return {
+                                            ...n,
+                                            data: {
+                                                ...n.data,
+                                                label,
+                                                description
+                                            }
+                                        };
+                                    }
+                                    return n;
+                                }));
+                                setEditingNode(null);
+                            }}
+                        />
+
+                        <Dialog open={isSearchModalOpen} onOpenChange={(open) => {
+                            setIsSearchModalOpen(open);
+                            if (!open) setSearchQuery('');
+                        }}>
+                            <DialogContent className="max-w-[450px]">
+                                <DialogHeader>
+                                    <DialogTitle>Buscar Node</DialogTitle>
+                                </DialogHeader>
+                                <div className="py-4 flex flex-col gap-4">
+                                    <input
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="h-10 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100"
+                                        placeholder="Digite para buscar pelo nome ou tipo..."
+                                        autoFocus
+                                    />
+                                    
+                                    <div className="max-h-60 overflow-y-auto border border-neutral-100 rounded-md divide-y divide-neutral-100 bg-neutral-50/50">
+                                        {matchingNodes.length === 0 ? (
+                                            <p className="text-xs text-neutral-400 italic p-4 text-center">
+                                                {searchQuery.trim() ? "Nenhum node encontrado" : "Digite um termo para começar a busca"}
+                                            </p>
+                                        ) : (
+                                            matchingNodes.map((n) => {
+                                                const label = n.data?.label || n.type || 'Node';
+                                                return (
+                                                    <button
+                                                        key={n.id}
+                                                        type="button"
+                                                        onClick={() => handleSelectSearchedNode(n.id)}
+                                                        className="w-full text-left px-4 py-3 hover:bg-neutral-50 transition flex items-center justify-between text-sm cursor-pointer"
+                                                    >
+                                                        <span className="font-medium text-neutral-700">{label}</span>
+                                                        <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider bg-neutral-100 px-1.5 py-0.5 rounded">
+                                                            {n.type}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => {
+                                        setIsSearchModalOpen(false);
+                                        setSearchQuery('');
+                                    }}>
+                                        Fechar
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+
+
+                        <Dialog open={renamingNode !== null} onOpenChange={(open) => !open && setRenamingNode(null)}>
+                            <DialogContent className="max-w-[400px]">
+                                <DialogHeader>
+                                    <DialogTitle>Renomear Node</DialogTitle>
+                                </DialogHeader>
+                                <div className="py-4">
+                                    <input
+                                        value={renameInputValue}
+                                        onChange={(e) => setRenameInputValue(e.target.value)}
+                                        className="h-10 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100"
+                                        placeholder="Nome do node"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleSaveRename();
+                                            }
+                                        }}
+                                    />
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => setRenamingNode(null)}>
+                                        Cancelar
+                                    </Button>
+                                    <Button onClick={handleSaveRename} className="bg-teal-600 hover:bg-teal-700 text-white">
+                                        Salvar
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
                     </ContextMenuTrigger>
 
-                    <ContextMenuContent>
-                        <ContextMenuItem>
-                            <Edit3Icon />
-                            Editar
+                    <ContextMenuContent className="w-56">
+                        <ContextMenuItem disabled={!clipboardNode} onSelect={() => pasteNode()} onClick={() => pasteNode()}>
+                            Paste
+                            <ContextMenuShortcut>Ctrl + V</ContextMenuShortcut>
                         </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem variant='destructive'>
-                            <Trash2Icon />
-                            Excluir
+                        <ContextMenuItem onSelect={selectAll} onClick={selectAll}>
+                            Select All
+                            <ContextMenuShortcut>Ctrl + A</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={clearSelection} onClick={clearSelection}>
+                            Clear Selection
+                            <ContextMenuShortcut>Esc</ContextMenuShortcut>
                         </ContextMenuItem>
                     </ContextMenuContent>
                 </ContextMenu>
@@ -951,38 +1783,38 @@ function NodePickerSidebar({
                 className={`absolute right-0 top-0 h-full w-[430px] max-w-[calc(100vw-28px)] bg-white border-l shadow-xl pointer-events-auto transition-transform duration-300 ease-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
                 onClick={(event) => event.stopPropagation()}
             >
-                <div className='h-28 border-b px-7 flex items-center'>
-                    <h2 className='text-xl font-semibold text-neutral-900'>What happens next?</h2>
+                <div className='h-16 border-b px-4 flex items-center'>
+                    <h2 className='text-lg font-semibold text-neutral-900'>What happens next?</h2>
                 </div>
 
-                <div className='h-[calc(100%-7rem)] overflow-y-auto px-7 py-5'>
+                <div className='h-[calc(100%-4rem)] overflow-y-auto px-4 py-3'>
                     <label className='relative block'>
-                        <SearchIcon className='absolute left-4 top-1/2 size-5 -translate-y-1/2 text-neutral-400' />
+                        <SearchIcon className='absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400' />
                         <input
                             value={searchTerm}
                             onChange={(event) => onSearchChange(event.target.value)}
                             placeholder='Search nodes...'
-                            className='h-14 w-full rounded-md border border-neutral-200 bg-white pl-12 pr-4 text-base outline-none shadow-sm transition focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100'
+                            className='h-10 w-full rounded-md border border-neutral-200 bg-white pl-9 pr-4 text-sm outline-none shadow-sm transition focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100'
                         />
                     </label>
 
-                    <div className='mt-8'>
+                    <div className='mt-4'>
                         <Accordion
                             multiple
                             defaultValue={filteredCategories.map((category) => category.title)}
-                            className='space-y-3'
+                            className='space-y-0'
                         >
                             {filteredCategories.map((category) => (
                                 <AccordionItem
                                     key={category.title}
                                     value={category.title}
-                                    className={`rounded-md border ${category.accentClassName}`}
+                                    className="border-b border-neutral-200 rounded-none shadow-none bg-transparent"
                                 >
-                                    <AccordionTrigger className='px-4 py-4 hover:no-underline'>
+                                    <AccordionTrigger className='px-0 py-2.5 hover:no-underline'>
                                         <CategoryHeader category={category} />
                                     </AccordionTrigger>
 
-                                    <AccordionContent className='px-4'>
+                                    <AccordionContent className='px-0 pb-3'>
                                         <div className='space-y-1'>
                                             {category.nodes.map((node) => (
                                                 <NodePickerItem
@@ -1014,11 +1846,11 @@ function CategoryHeader({ category }: { category: NodeCategory }) {
     const Icon = category.icon;
 
     return (
-        <div className='grid flex-1 grid-cols-[36px_1fr] items-center gap-3'>
+        <div className='grid flex-1 grid-cols-[24px_1fr] items-center gap-2'>
             <Icon className={`size-5 justify-self-center ${category.colorClassName}`} />
             <div>
                 <div className='text-sm font-semibold leading-tight text-neutral-900'>{category.title}</div>
-                <p className='mt-1 text-sm leading-snug text-neutral-500'>{category.description}</p>
+                <p className='mt-0.5 text-xs leading-snug text-neutral-500'>{category.description}</p>
             </div>
         </div>
     );
@@ -1037,7 +1869,7 @@ function NodePickerItem({
 
     return (
         <button
-            className='grid w-full cursor-grab grid-cols-[36px_1fr] items-center gap-3 rounded-md px-0 py-2 text-left transition hover:bg-white/70 active:cursor-grabbing'
+            className='grid w-full cursor-grab grid-cols-[24px_1fr] items-center gap-2 rounded-md px-1 py-1.5 text-left transition hover:bg-neutral-50 active:cursor-grabbing'
             draggable
             onClick={(event) => onNodeClick(event, item.type)}
             onDragStart={(event) => {

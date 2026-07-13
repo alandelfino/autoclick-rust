@@ -5,6 +5,7 @@ import { Input } from "../../../../components/ui/input";
 import { Field, FieldLabel } from "../../../../components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { invoke } from "@tauri-apps/api/core";
+import { FolderOpen } from "lucide-react";
 
 interface Credential {
     id: string;
@@ -180,14 +181,45 @@ export function CredentialDialog({
 
                         <Field>
                             <FieldLabel htmlFor="cred-val1">{labels.val1}</FieldLabel>
-                            <Input
-                                id="cred-val1"
-                                value={value1}
-                                onChange={(e) => setValue1(e.target.value)}
-                                placeholder={`Insira ${labels.val1.toLowerCase()}`}
-                                autoComplete="off"
-                            />
+                            {type === "sqlite" ? (
+                                <div className="flex gap-2">
+                                    <Input
+                                        id="cred-val1"
+                                        value={value1}
+                                        onChange={(e) => setValue1(e.target.value)}
+                                        placeholder={`Insira ${labels.val1.toLowerCase()}`}
+                                        autoComplete="off"
+                                        className="flex-1"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="px-3 shrink-0"
+                                        onClick={async () => {
+                                            try {
+                                                const selected = await invoke<string | null>("select_sqlite_file");
+                                                if (selected) {
+                                                    setValue1(selected);
+                                                }
+                                            } catch (err) {
+                                                console.error("Erro ao selecionar arquivo SQLite:", err);
+                                            }
+                                        }}
+                                    >
+                                        <FolderOpen className="size-4" />
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Input
+                                    id="cred-val1"
+                                    value={value1}
+                                    onChange={(e) => setValue1(e.target.value)}
+                                    placeholder={`Insira ${labels.val1.toLowerCase()}`}
+                                    autoComplete="off"
+                                />
+                            )}
                         </Field>
+
 
                         {labels.showVal2 && (
                             <Field>

@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "../../../components/ui/textarea";
 import { invoke } from "@tauri-apps/api/core";
 import { Play } from "lucide-react";
+import { useToast } from "../../../hooks/use-toast";
+
 
 interface NodeEditorModalProps {
     open: boolean;
@@ -58,6 +60,64 @@ export function NodeEditorModal({
     const [output, setOutput] = useState<any>(null);
     const [credentials, setCredentials] = useState<any[]>([]);
     const [aliasError, setAliasError] = useState("");
+
+    const { toast } = useToast();
+    const [isConnecting, setIsConnecting] = useState(false);
+
+    const handleConnectDb = async () => {
+        const credId = parameters.connection;
+        if (!credId) {
+            toast({
+                title: "Nenhuma conexão selecionada",
+                description: "Selecione uma credencial para conectar.",
+                variant: "destructive",
+            });
+            return;
+        }
+        const cred = credentials.find(c => c.id === credId);
+        if (!cred) return;
+        
+        setIsConnecting(true);
+        try {
+            const configJson = JSON.stringify({
+                value1: cred.value1,
+                value2: cred.value2,
+                value3: cred.value3,
+            });
+            const resultStr = await invoke<string>("run_db_helper", {
+                action: "schema",
+                dbType: cred.type,
+                configJson,
+                query: null
+            });
+            const result = JSON.parse(resultStr);
+            if (result.status === "success") {
+                setOutput({
+                    connected: true,
+                    database_type: cred.type,
+                    connection_name: cred.name,
+                    tables: result.tables
+                });
+                toast({
+                    title: "Conectado com sucesso!",
+                    description: `Estrutura do banco de dados carregada (${result.tables.length} tabelas).`,
+                    variant: "success",
+                });
+            } else {
+                throw new Error(result.message || "Erro ao carregar o esquema.");
+            }
+        } catch (err: any) {
+            console.error("Failed to connect database:", err);
+            toast({
+                title: "Falha ao conectar!",
+                description: err.message || String(err),
+                variant: "destructive",
+            });
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
 
     // Load node details and credentials on mount/open
     useEffect(() => {
@@ -136,7 +196,15 @@ export function NodeEditorModal({
         const params = parameters;
 
         switch (node.type) {
+            case "stickNote":
+                mockOutput = {
+                    status: "note",
+                    note_id: node.id,
+                    last_edited: new Date().toISOString()
+                };
+                break;
             case "clickByCoordinatesNode":
+
                 mockOutput = {
                     action: "click",
                     coordinates: { x: Number(params.x) || 100, y: Number(params.y) || 200 },
@@ -375,6 +443,31 @@ export function NodeEditorModal({
                         </Field>
                     </>
                 );
+            case "stickNote":
+                return (
+                    <>
+                        <Field>
+                            <FieldLabel>Título da Nota</FieldLabel>
+                            <Input
+                                value={parameters.label !== undefined ? parameters.label : (node.data?.label || "")}
+                                onChange={(e) => {
+                                    updateParam("label", e.target.value);
+                                    setName(e.target.value);
+                                }}
+                                placeholder="I'm a note"
+                            />
+                        </Field>
+                        <Field>
+                            <FieldLabel>Descrição / Conteúdo</FieldLabel>
+                            <Textarea
+                                className="h-28"
+                                value={parameters.description !== undefined ? parameters.description : (node.data?.description || "")}
+                                onChange={(e) => updateParam("description", e.target.value)}
+                                placeholder="Double click to edit me. Guide"
+                            />
+                        </Field>
+                    </>
+                );
             case "sqliteQueryNode":
             case "postgresqlQueryNode":
             case "mysqlQueryNode":
@@ -385,22 +478,35 @@ export function NodeEditorModal({
                             {filteredCreds.length === 0 ? (
                                 <p className="text-xs text-red-500 italic">Cadastre credenciais desse tipo nas configurações primeiro!</p>
                             ) : (
-                                <Select
-                                    value={parameters.connection || ""}
-                                    onValueChange={(val) => val && updateParam("connection", val)}
-                                    items={filteredCreds}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Selecione uma conexão" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {filteredCreds.map((c) => (
-                                            <SelectItem key={c.value} value={c.value}>
-                                                {c.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <Select
+                                            value={parameters.connection || ""}
+                                            onValueChange={(val) => val && updateParam("connection", val)}
+                                            items={filteredCreds}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione uma conexão" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {filteredCreds.map((c) => (
+                                                    <SelectItem key={c.value} value={c.value}>
+                                                        {c.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleConnectDb}
+                                        disabled={isConnecting || !parameters.connection}
+                                        className="h-10 text-xs shrink-0 cursor-pointer"
+                                    >
+                                        {isConnecting ? "Conectando..." : "Conectar"}
+                                    </Button>
+                                </div>
                             )}
                         </Field>
                         <Field>
@@ -414,6 +520,7 @@ export function NodeEditorModal({
                         </Field>
                     </>
                 );
+
             case "variableNode":
                 return (
                     <>
@@ -466,7 +573,7 @@ export function NodeEditorModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-[90vw] w-[1200px] h-[80vh] flex flex-col p-0 overflow-hidden">
+            <DialogContent className="w-full max-w-[calc(100vw-4rem)] h-full max-h-[calc(100vh-4rem)] flex flex-col p-0 overflow-hidden">
                 <DialogHeader className="p-4 border-b border-neutral-100 flex-none">
                     <DialogTitle className="flex items-center gap-2 text-md">
                         <span className="bg-teal-50 border border-teal-200 px-2 py-0.5 rounded text-teal-600 text-xs font-mono uppercase">

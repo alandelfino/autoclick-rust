@@ -16,7 +16,7 @@ const CustomOutputHandle = ({ id, position = Position.Right, className, ...props
             id={id}                // Importante se o nó tiver múltiplas saídas
             isValidConnection={validateConnection}
             {...props}            // Repassa outras propriedades como onConnect, isConnectable, etc.
-            className={cn('w-3 h-5 bg-neutral-300 border border-neutral-300 z-10 rounded-none rounded-r-full -right-1.5', className)}
+            className={cn('w-2 h-3 bg-neutral-300 border border-neutral-300 z-10 rounded-none rounded-r-full -right-1', className)}
         />
     );
 };
