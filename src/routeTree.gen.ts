@@ -11,9 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DashboardRouteRouteImport } from './routes/dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as FlowIndexRouteImport } from './routes/flow/index'
 import { Route as DashboardSettingsIndexRouteImport } from './routes/dashboard/settings/index'
 import { Route as DashboardFlowsIndexRouteImport } from './routes/dashboard/flows/index'
+import { Route as DashboardFlowIndexRouteImport } from './routes/dashboard/flow/index'
 import { Route as DashboardCredentialsIndexRouteImport } from './routes/dashboard/credentials/index'
 
 const DashboardRouteRoute = DashboardRouteRouteImport.update({
@@ -26,11 +26,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FlowIndexRoute = FlowIndexRouteImport.update({
-  id: '/flow/',
-  path: '/flow/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DashboardSettingsIndexRoute = DashboardSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
@@ -39,6 +34,11 @@ const DashboardSettingsIndexRoute = DashboardSettingsIndexRouteImport.update({
 const DashboardFlowsIndexRoute = DashboardFlowsIndexRouteImport.update({
   id: '/flows/',
   path: '/flows/',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
+const DashboardFlowIndexRoute = DashboardFlowIndexRouteImport.update({
+  id: '/flow/',
+  path: '/flow/',
   getParentRoute: () => DashboardRouteRoute,
 } as any)
 const DashboardCredentialsIndexRoute =
@@ -51,16 +51,16 @@ const DashboardCredentialsIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteRouteWithChildren
-  '/flow/': typeof FlowIndexRoute
   '/dashboard/credentials/': typeof DashboardCredentialsIndexRoute
+  '/dashboard/flow/': typeof DashboardFlowIndexRoute
   '/dashboard/flows/': typeof DashboardFlowsIndexRoute
   '/dashboard/settings/': typeof DashboardSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteRouteWithChildren
-  '/flow': typeof FlowIndexRoute
   '/dashboard/credentials': typeof DashboardCredentialsIndexRoute
+  '/dashboard/flow': typeof DashboardFlowIndexRoute
   '/dashboard/flows': typeof DashboardFlowsIndexRoute
   '/dashboard/settings': typeof DashboardSettingsIndexRoute
 }
@@ -68,8 +68,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteRouteWithChildren
-  '/flow/': typeof FlowIndexRoute
   '/dashboard/credentials/': typeof DashboardCredentialsIndexRoute
+  '/dashboard/flow/': typeof DashboardFlowIndexRoute
   '/dashboard/flows/': typeof DashboardFlowsIndexRoute
   '/dashboard/settings/': typeof DashboardSettingsIndexRoute
 }
@@ -78,24 +78,24 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
-    | '/flow/'
     | '/dashboard/credentials/'
+    | '/dashboard/flow/'
     | '/dashboard/flows/'
     | '/dashboard/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
-    | '/flow'
     | '/dashboard/credentials'
+    | '/dashboard/flow'
     | '/dashboard/flows'
     | '/dashboard/settings'
   id:
     | '__root__'
     | '/'
     | '/dashboard'
-    | '/flow/'
     | '/dashboard/credentials/'
+    | '/dashboard/flow/'
     | '/dashboard/flows/'
     | '/dashboard/settings/'
   fileRoutesById: FileRoutesById
@@ -103,7 +103,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRouteRoute: typeof DashboardRouteRouteWithChildren
-  FlowIndexRoute: typeof FlowIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -122,13 +121,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/flow/': {
-      id: '/flow/'
-      path: '/flow'
-      fullPath: '/flow/'
-      preLoaderRoute: typeof FlowIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/dashboard/settings/': {
       id: '/dashboard/settings/'
       path: '/settings'
@@ -143,6 +135,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardFlowsIndexRouteImport
       parentRoute: typeof DashboardRouteRoute
     }
+    '/dashboard/flow/': {
+      id: '/dashboard/flow/'
+      path: '/flow'
+      fullPath: '/dashboard/flow/'
+      preLoaderRoute: typeof DashboardFlowIndexRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/dashboard/credentials/': {
       id: '/dashboard/credentials/'
       path: '/credentials'
@@ -155,12 +154,14 @@ declare module '@tanstack/react-router' {
 
 interface DashboardRouteRouteChildren {
   DashboardCredentialsIndexRoute: typeof DashboardCredentialsIndexRoute
+  DashboardFlowIndexRoute: typeof DashboardFlowIndexRoute
   DashboardFlowsIndexRoute: typeof DashboardFlowsIndexRoute
   DashboardSettingsIndexRoute: typeof DashboardSettingsIndexRoute
 }
 
 const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardCredentialsIndexRoute: DashboardCredentialsIndexRoute,
+  DashboardFlowIndexRoute: DashboardFlowIndexRoute,
   DashboardFlowsIndexRoute: DashboardFlowsIndexRoute,
   DashboardSettingsIndexRoute: DashboardSettingsIndexRoute,
 }
@@ -172,7 +173,6 @@ const DashboardRouteRouteWithChildren = DashboardRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRouteRoute: DashboardRouteRouteWithChildren,
-  FlowIndexRoute: FlowIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

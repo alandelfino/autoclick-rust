@@ -1,14 +1,14 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 
-import { Button } from '../../components/ui/button'
+import { Button } from '../../../components/ui/button'
 import { addEdge, applyEdgeChanges, applyNodeChanges, Background, BackgroundVariant, MarkerType, ReactFlow, ReactFlowProvider, SelectionMode, useReactFlow, useViewport, MiniMap } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Separator } from '../../components/ui/separator'
+import { Separator } from '../../../components/ui/separator'
 import { NodeEditorModal } from './-components/node-editor-modal'
 import { StickyNoteEditorModal } from './-components/sticky-note-editor-modal'
-import { useToast } from '../../hooks/use-toast'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog'
+import { useToast } from '../../../hooks/use-toast'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../../components/ui/dialog'
 import {
     ArrowBigDownDash,
     BadgeCheckIcon,
@@ -42,9 +42,9 @@ import {
     ZoomInIcon,
 } from 'lucide-react'
 import type { ComponentType, DragEvent, MouseEvent as ReactMouseEvent } from 'react'
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuShortcut } from '../../components/ui/context-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../../components/ui/accordion'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuShortcut } from '../../../components/ui/context-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip'
 import triggerManuallyNode from './-components/nodes/trigger-manually-node'
 import triggerOnASchedulleNode from './-components/nodes/trigger-on-a-schedulle-node'
 import clickByCoordinatesNode from './-components/nodes/click-by-coordinates-node'
@@ -68,13 +68,12 @@ import actionsDialogNode from './-components/nodes/actions-dialog-node'
 import alertDialogNode from './-components/nodes/alert-dialog-node'
 import stickNoteNode from './-components/nodes/stick-note'
 import actionEdge from './-components/action-edge'
-import logo from '../../assets/logo.png'
 
 type FlowSearch = {
     id?: string;
 }
 
-export const Route = createFileRoute('/flow/')({
+export const Route = createFileRoute('/dashboard/flow/')({
     component: RouteComponent,
     validateSearch: (search: Record<string, unknown>): FlowSearch => {
         return {
@@ -495,192 +494,323 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
     const copyNode = useCallback((node: any) => {
         if (!node) return;
-        setClipboardNode(node);
-        toast({
-            title: "Node copiado!",
-            description: `"${node.data?.label || node.type}" copiado para a área de transferência.`,
+        const selectedNodes = nodes.filter((n: any) => n.selected);
+        const nodesToCopy = selectedNodes.length > 1 ? selectedNodes : [node];
+        
+        const nodeIds = new Set(nodesToCopy.map((n: any) => n.id));
+        const edgesToCopy = edges.filter((e: any) => nodeIds.has(e.source) && nodeIds.has(e.target));
+
+        setClipboardNode({
+            nodes: nodesToCopy,
+            edges: edgesToCopy
         });
-    }, [toast]);
+
+        toast({
+            title: selectedNodes.length > 1 ? "Nodes copiados!" : "Node copiado!",
+            description: `${nodesToCopy.length} nodes e ${edgesToCopy.length} conexões copiados.`,
+        });
+    }, [toast, nodes, edges]);
 
     const pasteNode = useCallback((clientX?: number, clientY?: number) => {
-        if (!clipboardNode) return;
+        const clipboardNodes = clipboardNode?.nodes || [];
+        const clipboardEdges = clipboardNode?.edges || [];
+        if (clipboardNodes.length === 0) return;
 
-        const isTrigger = clipboardNode.type === 'trigger_manually' || clipboardNode.type === 'trigger_on_a_schedulle';
-        if (isTrigger) {
-            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
-            if (hasTrigger) {
-                toast({
-                    title: "Erro ao colar",
-                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
-                    variant: "destructive"
-                });
-                return;
-            }
+        const triggersToPaste = clipboardNodes.filter((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        const triggerAlreadyInFlow = nodes.some((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        if (triggersToPaste.length > 0 && triggerAlreadyInFlow) {
+            toast({
+                title: "Erro ao colar",
+                description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                variant: "destructive"
+            });
+            return;
         }
 
         const x = clientX ?? mouseRef.current.x;
         const y = clientY ?? mouseRef.current.y;
+        const targetPos = screenToFlowPosition({ x, y }, { snapToGrid: true, snapGrid: [20, 20] });
 
-        const position = screenToFlowPosition({ x, y }, { snapToGrid: true, snapGrid: [20, 20] });
-        const newNodeId = `${clipboardNode.type}-${crypto.randomUUID()}`;
+        let minX = Infinity;
+        let minY = Infinity;
+        clipboardNodes.forEach((n: any) => {
+            const px = n.position?.x ?? 0;
+            const py = n.position?.y ?? 0;
+            if (px < minX) minX = px;
+            if (py < minY) minY = py;
+        });
+        if (minX === Infinity) minX = 0;
+        if (minY === Infinity) minY = 0;
 
-        const label = `${clipboardNode.data?.label || clipboardNode.type} (Copy)`;
-        const alias = `${clipboardNode.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+        const idMap = new Map<string, string>();
 
-        setNodes((prevNodes) => [
-            ...prevNodes,
-            {
+        const newNodes = clipboardNodes.map((n: any) => {
+            const newNodeId = `${n.type}-${crypto.randomUUID()}`;
+            idMap.set(n.id, newNodeId);
+            const offsetX = (n.position?.x ?? 0) - minX;
+            const offsetY = (n.position?.y ?? 0) - minY;
+            return {
                 id: newNodeId,
-                type: clipboardNode.type,
-                position,
-                style: clipboardNode.style || (clipboardNode.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
-                data: {
-                    ...clipboardNode.data,
-                    label,
-                    alias,
-                    output: null,
+                type: n.type,
+                position: {
+                    x: targetPos.x + offsetX,
+                    y: targetPos.y + offsetY,
                 },
-            },
-        ]);
+                style: n.style || (n.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                selected: true,
+                data: {
+                    ...n.data,
+                    label: `${n.data?.label || n.type} (Copy)`,
+                    alias: `${n.data?.alias || newNodeId.replace(/-/g, '_')}_copy`,
+                    output: null,
+                }
+            };
+        });
+
+        const newEdges = clipboardEdges.map((e: any) => {
+            const newSource = idMap.get(e.source);
+            const newTarget = idMap.get(e.target);
+            if (newSource && newTarget) {
+                return {
+                    ...e,
+                    id: `${newSource}-${newTarget}`,
+                    source: newSource,
+                    target: newTarget,
+                    selected: true,
+                };
+            }
+            return null;
+        }).filter(Boolean);
+
+        setTimeout(() => {
+            setNodes((prevNodes) => prevNodes.map((n: any) => ({ ...n, selected: false })).concat(newNodes));
+            setEdges((prevEdges) => prevEdges.map((e: any) => ({ ...e, selected: false })).concat(newEdges as any[]));
+        }, 0);
 
         toast({
-            title: "Node colado!",
-            description: `Novo node criado a partir de "${clipboardNode.data?.label || clipboardNode.type}".`,
+            title: clipboardNodes.length > 1 ? "Nodes colados!" : "Node colado!",
+            description: `${newNodes.length} nodes e ${newEdges.length} conexões colados.`,
             variant: "success",
         });
     }, [clipboardNode, screenToFlowPosition, toast, nodes]);
 
     const pasteBefore = useCallback((targetNode: any) => {
-        if (!clipboardNode || !targetNode) return;
+        const clipboardNodes = clipboardNode?.nodes || [];
+        const clipboardEdges = clipboardNode?.edges || [];
+        if (clipboardNodes.length === 0 || !targetNode) return;
 
-        const isTrigger = clipboardNode.type === 'trigger_manually' || clipboardNode.type === 'trigger_on_a_schedulle';
-        if (isTrigger) {
-            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
-            if (hasTrigger) {
-                toast({
-                    title: "Erro ao colar",
-                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
-                    variant: "destructive"
-                });
-                return;
-            }
+        const triggersToPaste = clipboardNodes.filter((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        const triggerAlreadyInFlow = nodes.some((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        if (triggersToPaste.length > 0 && triggerAlreadyInFlow) {
+            toast({
+                title: "Erro ao colar",
+                description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                variant: "destructive"
+            });
+            return;
         }
 
-        const newNodeId = `${clipboardNode.type}-${crypto.randomUUID()}`;
-        const label = `${clipboardNode.data?.label || clipboardNode.type} (Copy)`;
-        const alias = `${clipboardNode.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+        let minX = Infinity;
+        let minY = Infinity;
+        clipboardNodes.forEach((n: any) => {
+            const px = n.position?.x ?? 0;
+            const py = n.position?.y ?? 0;
+            if (px < minX) minX = px;
+            if (py < minY) minY = py;
+        });
+        if (minX === Infinity) minX = 0;
+        if (minY === Infinity) minY = 0;
 
-        const position = {
+        const basePosition = {
             x: targetNode.position.x - 180,
             y: targetNode.position.y,
         };
 
-        setNodes((prev) => [
-            ...prev,
-            {
+        const idMap = new Map<string, string>();
+
+        const newNodes = clipboardNodes.map((n: any) => {
+            const newNodeId = `${n.type}-${crypto.randomUUID()}`;
+            idMap.set(n.id, newNodeId);
+            const offsetX = (n.position?.x ?? 0) - minX;
+            const offsetY = (n.position?.y ?? 0) - minY;
+            return {
                 id: newNodeId,
-                type: clipboardNode.type,
-                position,
-                style: clipboardNode.style || (clipboardNode.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
-                data: {
-                    ...clipboardNode.data,
-                    label,
-                    alias,
-                    output: null,
+                type: n.type,
+                position: {
+                    x: basePosition.x + offsetX,
+                    y: basePosition.y + offsetY,
                 },
-            },
-        ]);
-
-        setEdges((prevEdges) => {
-            const incomingEdges = prevEdges.filter((e) => e.target === targetNode.id);
-            const otherEdges = prevEdges.filter((e) => e.target !== targetNode.id);
-
-            const modifiedIncoming = incomingEdges.map((e) => ({
-                ...e,
-                target: newNodeId,
-                id: `${e.source}-${newNodeId}`,
-            }));
-
-            const newEdge = {
-                id: `${newNodeId}-${targetNode.id}`,
-                source: newNodeId,
-                target: targetNode.id,
-                type: 'actionEdge',
+                style: n.style || (n.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                selected: true,
+                data: {
+                    ...n.data,
+                    label: `${n.data?.label || n.type} (Copy)`,
+                    alias: `${n.data?.alias || newNodeId.replace(/-/g, '_')}_copy`,
+                    output: null,
+                }
             };
-
-            return [...otherEdges, ...modifiedIncoming, newEdge];
         });
 
+        const newEdges = clipboardEdges.map((e: any) => {
+            const newSource = idMap.get(e.source);
+            const newTarget = idMap.get(e.target);
+            if (newSource && newTarget) {
+                return {
+                    ...e,
+                    id: `${newSource}-${newTarget}`,
+                    source: newSource,
+                    target: newTarget,
+                    selected: true,
+                };
+            }
+            return null;
+        }).filter(Boolean);
+
+        setTimeout(() => {
+            setNodes((prev) => prev.map((n: any) => ({ ...n, selected: false })).concat(newNodes));
+
+            setEdges((prevEdges) => {
+                const deselectedEdges = prevEdges.map((e: any) => ({ ...e, selected: false }));
+                let resultEdges = [...deselectedEdges, ...(newEdges as any[])];
+
+                if (newNodes.length === 1) {
+                    const newNodeId = newNodes[0].id;
+                    const incomingEdges = deselectedEdges.filter((e) => e.target === targetNode.id);
+                    const otherEdges = deselectedEdges.filter((e) => e.target !== targetNode.id);
+
+                    const modifiedIncoming = incomingEdges.map((e) => ({
+                        ...e,
+                        target: newNodeId,
+                        id: `${e.source}-${newNodeId}`,
+                    }));
+
+                    const newEdge = {
+                        id: `${newNodeId}-${targetNode.id}`,
+                        source: newNodeId,
+                        target: targetNode.id,
+                        type: 'actionEdge',
+                        selected: true,
+                    };
+
+                    resultEdges = [...otherEdges, ...modifiedIncoming, newEdge, ...(newEdges as any[])];
+                }
+                return resultEdges;
+            });
+        }, 0);
+
         toast({
-            title: "Node colado antes",
+            title: clipboardNodes.length > 1 ? "Nodes colados antes" : "Node colado antes",
             description: `Inserido antes de "${targetNode.data?.label || targetNode.type}".`,
             variant: "success",
         });
     }, [clipboardNode, toast, nodes]);
 
     const pasteAfter = useCallback((targetNode: any) => {
-        if (!clipboardNode || !targetNode) return;
+        const clipboardNodes = clipboardNode?.nodes || [];
+        const clipboardEdges = clipboardNode?.edges || [];
+        if (clipboardNodes.length === 0 || !targetNode) return;
 
-        const isTrigger = clipboardNode.type === 'trigger_manually' || clipboardNode.type === 'trigger_on_a_schedulle';
-        if (isTrigger) {
-            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
-            if (hasTrigger) {
-                toast({
-                    title: "Erro ao colar",
-                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
-                    variant: "destructive"
-                });
-                return;
-            }
+        const triggersToPaste = clipboardNodes.filter((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        const triggerAlreadyInFlow = nodes.some((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        if (triggersToPaste.length > 0 && triggerAlreadyInFlow) {
+            toast({
+                title: "Erro ao colar",
+                description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                variant: "destructive"
+            });
+            return;
         }
 
-        const newNodeId = `${clipboardNode.type}-${crypto.randomUUID()}`;
-        const label = `${clipboardNode.data?.label || clipboardNode.type} (Copy)`;
-        const alias = `${clipboardNode.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+        let minX = Infinity;
+        let minY = Infinity;
+        clipboardNodes.forEach((n: any) => {
+            const px = n.position?.x ?? 0;
+            const py = n.position?.y ?? 0;
+            if (px < minX) minX = px;
+            if (py < minY) minY = py;
+        });
+        if (minX === Infinity) minX = 0;
+        if (minY === Infinity) minY = 0;
 
-        const position = {
+        const basePosition = {
             x: targetNode.position.x + 180,
             y: targetNode.position.y,
         };
 
-        setNodes((prev) => [
-            ...prev,
-            {
+        const idMap = new Map<string, string>();
+
+        const newNodes = clipboardNodes.map((n: any) => {
+            const newNodeId = `${n.type}-${crypto.randomUUID()}`;
+            idMap.set(n.id, newNodeId);
+            const offsetX = (n.position?.x ?? 0) - minX;
+            const offsetY = (n.position?.y ?? 0) - minY;
+            return {
                 id: newNodeId,
-                type: clipboardNode.type,
-                position,
-                style: clipboardNode.style || (clipboardNode.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
-                data: {
-                    ...clipboardNode.data,
-                    label,
-                    alias,
-                    output: null,
+                type: n.type,
+                position: {
+                    x: basePosition.x + offsetX,
+                    y: basePosition.y + offsetY,
                 },
-            },
-        ]);
-
-        setEdges((prevEdges) => {
-            const outgoingEdges = prevEdges.filter((e) => e.source === targetNode.id);
-            const otherEdges = prevEdges.filter((e) => e.source !== targetNode.id);
-
-            const modifiedOutgoing = outgoingEdges.map((e) => ({
-                ...e,
-                source: newNodeId,
-                id: `${newNodeId}-${e.target}`,
-            }));
-
-            const newEdge = {
-                id: `${targetNode.id}-${newNodeId}`,
-                source: targetNode.id,
-                target: newNodeId,
-                type: 'actionEdge',
+                style: n.style || (n.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                selected: true,
+                data: {
+                    ...n.data,
+                    label: `${n.data?.label || n.type} (Copy)`,
+                    alias: `${n.data?.alias || newNodeId.replace(/-/g, '_')}_copy`,
+                    output: null,
+                }
             };
-
-            return [...otherEdges, ...modifiedOutgoing, newEdge];
         });
 
+        const newEdges = clipboardEdges.map((e: any) => {
+            const newSource = idMap.get(e.source);
+            const newTarget = idMap.get(e.target);
+            if (newSource && newTarget) {
+                return {
+                    ...e,
+                    id: `${newSource}-${newTarget}`,
+                    source: newSource,
+                    target: newTarget,
+                    selected: true,
+                };
+            }
+            return null;
+        }).filter(Boolean);
+
+        setTimeout(() => {
+            setNodes((prev) => prev.map((n: any) => ({ ...n, selected: false })).concat(newNodes));
+
+            setEdges((prevEdges) => {
+                const deselectedEdges = prevEdges.map((e: any) => ({ ...e, selected: false }));
+                let resultEdges = [...deselectedEdges, ...(newEdges as any[])];
+
+                if (newNodes.length === 1) {
+                    const newNodeId = newNodes[0].id;
+                    const outgoingEdges = deselectedEdges.filter((e) => e.source === targetNode.id);
+                    const otherEdges = deselectedEdges.filter((e) => e.source !== targetNode.id);
+
+                    const modifiedOutgoing = outgoingEdges.map((e: any) => ({
+                        ...e,
+                        source: newNodeId,
+                        id: `${newNodeId}-${e.target}`,
+                    }));
+
+                    const newEdge = {
+                        id: `${targetNode.id}-${newNodeId}`,
+                        source: targetNode.id,
+                        target: newNodeId,
+                        type: 'actionEdge',
+                        selected: true,
+                    };
+
+                    resultEdges = [...otherEdges, ...modifiedOutgoing, newEdge, ...(newEdges as any[])];
+                }
+                return resultEdges;
+            });
+        }, 0);
+
         toast({
-            title: "Node colado depois",
+            title: clipboardNodes.length > 1 ? "Nodes colados depois" : "Node colado depois",
             description: `Inserido depois de "${targetNode.data?.label || targetNode.type}".`,
             variant: "success",
         });
@@ -688,48 +818,73 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
 
     const duplicateNode = useCallback((node: any) => {
         if (!node) return;
-        const isTrigger = node.type === 'trigger_manually' || node.type === 'trigger_on_a_schedulle';
-        if (isTrigger) {
-            const hasTrigger = nodes.some(n => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
-            if (hasTrigger) {
-                toast({
-                    title: "Erro ao duplicar",
-                    description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
-                    variant: "destructive"
-                });
-                return;
-            }
+        const selectedNodes = nodes.filter((n: any) => n.selected);
+        const nodesToDuplicate = selectedNodes.length > 1 ? selectedNodes : [node];
+
+        const triggersToDuplicate = nodesToDuplicate.filter((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        const triggerAlreadyInFlow = nodes.some((n: any) => n.type === 'trigger_manually' || n.type === 'trigger_on_a_schedulle');
+        
+        if (triggersToDuplicate.length > 0 && triggerAlreadyInFlow) {
+            toast({
+                title: "Erro ao duplicar",
+                description: "Cada fluxo pode conter apenas 1 node do tipo Trigger.",
+                variant: "destructive"
+            });
+            return;
         }
 
-        const newNodeId = `${node.type}-${crypto.randomUUID()}`;
-        const position = {
-            x: node.position.x + 50,
-            y: node.position.y + 50,
-        };
-        const label = `${node.data?.label || node.type} (Copy)`;
-        const alias = `${node.data?.alias || newNodeId.replace(/-/g, '_')}_copy`;
+        const idMap = new Map<string, string>();
 
-        setNodes((prev) => [
-            ...prev,
-            {
+        const newNodes = nodesToDuplicate.map((n: any) => {
+            const newNodeId = `${n.type}-${crypto.randomUUID()}`;
+            idMap.set(n.id, newNodeId);
+            return {
                 id: newNodeId,
-                type: node.type,
-                position,
-                style: node.style || (node.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
-                data: {
-                    ...node.data,
-                    label,
-                    alias,
-                    output: null,
+                type: n.type,
+                position: {
+                    x: n.position.x + 50,
+                    y: n.position.y + 50,
                 },
-            },
-        ]);
+                style: n.style || (n.type === 'stickNote' ? { width: 260, height: 160 } : undefined),
+                selected: true,
+                data: {
+                    ...n.data,
+                    label: `${n.data?.label || n.type} (Copy)`,
+                    alias: `${n.data?.alias || newNodeId.replace(/-/g, '_')}_copy`,
+                    output: null,
+                }
+            };
+        });
+
+        const nodeIds = new Set(nodesToDuplicate.map((n: any) => n.id));
+        const internalEdges = edges.filter((e: any) => nodeIds.has(e.source) && nodeIds.has(e.target));
+
+        const newEdges = internalEdges.map((e: any) => {
+            const newSource = idMap.get(e.source);
+            const newTarget = idMap.get(e.target);
+            if (newSource && newTarget) {
+                return {
+                    ...e,
+                    id: `${newSource}-${newTarget}`,
+                    source: newSource,
+                    target: newTarget,
+                    selected: true,
+                };
+            }
+            return null;
+        }).filter(Boolean);
+
+        setTimeout(() => {
+            setNodes((prev) => prev.map((n: any) => ({ ...n, selected: false })).concat(newNodes));
+            setEdges((prev) => prev.map((e: any) => ({ ...e, selected: false })).concat(newEdges as any[]));
+        }, 0);
+
         toast({
-            title: "Node duplicado!",
-            description: `Duplicado com sucesso.`,
+            title: nodesToDuplicate.length > 1 ? "Nodes duplicados!" : "Node duplicado!",
+            description: `${newNodes.length} nodes e ${newEdges.length} conexões duplicados com sucesso.`,
             variant: "success",
         });
-    }, [toast, nodes]);
+    }, [toast, nodes, edges]);
 
     const renameNode = useCallback((node: any) => {
         if (!node) return;
@@ -891,10 +1046,18 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
     }, [toast]);
 
     const deleteNode = useCallback((nodeId: string) => {
-        setNodes((prev) => prev.filter((n) => n.id !== nodeId));
-        setEdges((prev) => prev.filter((e) => e.source !== nodeId && e.target !== nodeId));
-        toast({ title: "Node excluído", description: "Node removido com sucesso." });
-    }, [toast]);
+        const selectedNodes = nodes.filter(n => n.selected);
+        if (selectedNodes.length > 1) {
+            const selectedIds = new Set(selectedNodes.map(n => n.id));
+            setNodes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+            setEdges((prev) => prev.filter((e) => !selectedIds.has(e.source) && !selectedIds.has(e.target)));
+            toast({ title: "Nodes excluídos", description: `${selectedNodes.length} nodes removidos com sucesso.` });
+        } else {
+            setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+            setEdges((prev) => prev.filter((e) => e.source !== nodeId && e.target !== nodeId));
+            toast({ title: "Node excluído", description: "Node removido com sucesso." });
+        }
+    }, [toast, nodes]);
 
     const deleteSelected = useCallback(() => {
         setNodes((prev) => prev.filter((n) => !n.selected));
@@ -976,17 +1139,21 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
     }, []);
 
     const renderedNodes = useMemo(() => {
+        const selectedCount = nodes.filter((n) => n.selected).length;
+        const hasMultipleSelection = selectedCount > 1;
         return nodes.map((node) => ({
             ...node,
             zIndex: node.type === 'stickNote' ? -10 : 1,
             data: {
                 ...node.data,
+                selectedCount,
+                hasMultipleSelection,
                 hasOutgoingConnection: edges.some((edge) => edge.source === node.id),
                 connectedSourceHandles: edges.filter((edge) => edge.source === node.id).map((edge) => edge.sourceHandle ?? 'b'),
                 connectingSourceNodeId,
                 connectingSourceHandleId,
                 onAddNext: openNodePickerFromNode,
-                clipboardNodeExists: !!clipboardNode,
+                clipboardNodeExists: clipboardNode && clipboardNode.nodes && clipboardNode.nodes.length > 0,
                 onSelect: () => selectSingleNode(node.id),
                 onOpen: () => setEditingNode(node),
                 onExecuteStep: () => executeStep(node),
@@ -1097,6 +1264,7 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
         nodes,
         copyNode,
         pasteNode,
+        duplicateNode,
         renameNode,
         executeStep,
         selectAll,
@@ -1354,18 +1522,9 @@ function FlowBuilder({ flowId }: { flowId?: string }) {
     };
 
     return (
-        <div className="flex flex-col h-screen w-screen overflow-hidden">
+        <div className="flex flex-col h-full w-full overflow-hidden">
             {/* Header */}
             <div className='h-18 border-b flex items-center px-4 gap-4 flex-none bg-white'>
-                <div>
-                    <img
-                        src={logo}
-                        alt='Logo'
-                        className='h-18 object-contain'
-                    />
-                </div>
-
-                <Separator orientation="vertical" className='h-9 my-auto' />
 
                 <div className='w-full flex flex-col items-start'>
                     <input

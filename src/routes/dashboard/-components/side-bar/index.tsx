@@ -8,20 +8,30 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Link } from "@tanstack/react-router"
 import { GitForkIcon, LockKeyholeIcon, MousePointerClick, SettingsIcon } from "lucide-react"
+import logo from "../../../../assets/logo.png"
+import { cn } from "../../../../lib/utils"
 
 export function AppSidebar() {
     return (
         <Sidebar collapsible="icon" className="border-t">
 
             {/* Header */}
-            <SidebarHeader>
-                <SidebarMenuButton className="h-auto group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center">
-                    <MousePointerClick className="bg-neutral-900 rounded-lg w-7! h-7! text-white p-1 group-data-[collapsible=icon]:w-5! group-data-[collapsible=icon]:h-6! group-data-[collapsible=icon]:rounded-md! group-data-[collapsible=icon]:bg-transparent! group-data-[collapsible=icon]:text-neutral-800 group-data-[collapsible=icon]:p-0" />
-                    <span className="text-base font-semibold font-inter group-data-[collapsible=icon]:hidden!">Autoclick</span>
-                </SidebarMenuButton>
+            <SidebarHeader className="flex justify-start">
+                <div className="px-w-full h-14 flex items-center justify-between">
+                    
+                    <img
+                        src={logo}
+                        alt='Logo'
+                        className={cn("h-8 object-contain", "group-data-[collapsible=icon]:hidden")}
+                    />
+                    
+                    <SidebarTrigger />
+                    
+                </div>
             </SidebarHeader>
 
             {/* Content */}

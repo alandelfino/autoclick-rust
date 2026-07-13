@@ -1,8 +1,7 @@
 import { Position } from '@xyflow/react';
-import type { ComponentType, MouseEvent as ReactMouseEvent } from 'react';
+import { memo, type ComponentType, type MouseEvent as ReactMouseEvent } from 'react';
+import { Card, CardContent } from '../../../../../components/ui/card';
 import { PlusIcon, Play, Pencil, MoreVertical } from 'lucide-react';
-import { Card, CardContent } from '../../../../components/ui/card';
-import CustomInputHandle from '../handles/input-handle';
 import CustomOutputHandle from '../handles/output-handle';
 import {
     ContextMenu,
@@ -11,7 +10,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger,
     ContextMenuShortcut,
-} from '../../../../components/ui/context-menu';
+} from '../../../../../components/ui/context-menu';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -19,20 +18,18 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
     DropdownMenuShortcut,
-} from '../../../../components/ui/dropdown-menu';
+} from '../../../../../components/ui/dropdown-menu';
 
-import { cn } from '../../../../lib/utils';
-
-type WorkflowNodeProps = {
+type TriggerNodeProps = {
     id?: string;
     selected?: boolean;
     data?: {
         label?: string;
+        hasMultipleSelection?: boolean;
+        selectedCount?: number;
         hasOutgoingConnection?: boolean;
-        connectedSourceHandles?: string[];
         connectingSourceNodeId?: string | null;
-        connectingSourceHandleId?: string | null;
-        onAddNext?: (sourceNodeId: string, sourceHandleId?: string) => void;
+        onAddNext?: (sourceNodeId: string) => void;
         clipboardNodeExists?: boolean;
         onSelect?: () => void;
         onOpen?: () => void;
@@ -47,31 +44,19 @@ type WorkflowNodeProps = {
         onDelete?: () => void;
     };
     icon: ComponentType<{ className?: string }>;
-    iconClassName: string;
+    iconClassName?: string;
     label: string;
-    input?: boolean;
-    output?: boolean;
-    outputs?: {
-        id: string;
-        label?: string;
-        labelClassName?: string;
-        className?: string;
-        style?: React.CSSProperties;
-    }[];
 };
 
-const WorkflowNode = ({
+const TriggerNode = ({
     id,
     selected,
     data,
     icon: Icon,
     iconClassName,
     label,
-    input = true,
-    output = true,
-    outputs,
-}: WorkflowNodeProps) => {
-    const showAddNextPointer = output && !outputs && id && !data?.hasOutgoingConnection;
+}: TriggerNodeProps) => {
+    const showAddNextPointer = id && !data?.hasOutgoingConnection;
     const isConnectingFromPointer = showAddNextPointer && data?.connectingSourceNodeId === id;
 
     return (
@@ -135,10 +120,10 @@ const WorkflowNode = ({
                             Duplicate
                             <DropdownMenuShortcut>Ctrl + d</DropdownMenuShortcut>
                         </DropdownMenuItem>
-                        <DropdownMenuItem disabled={!input || !data?.clipboardNodeExists} onSelect={data?.onPasteBefore} onClick={data?.onPasteBefore}>
+                        <DropdownMenuItem disabled={true} onSelect={data?.onPasteBefore} onClick={data?.onPasteBefore}>
                             Paste before
                         </DropdownMenuItem>
-                        <DropdownMenuItem disabled={(!output && !outputs) || !data?.clipboardNodeExists} onSelect={data?.onPasteAfter} onClick={data?.onPasteAfter}>
+                        <DropdownMenuItem disabled={!data?.clipboardNodeExists} onSelect={data?.onPasteAfter} onClick={data?.onPasteAfter}>
                             Paste after
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -167,58 +152,19 @@ const WorkflowNode = ({
                         }
                     }}
                 >
-                    <Card className={`rounded-2xl w-24 h-24 overflow-visible transition-all duration-150 ${selected ? 'ring-4 ring-teal-400/20 border-neutral-500 shadow-md z-10' : 'border-neutral-300'}`}>
+                    <Card className={`rounded-2xl rounded-l-[100%] w-24 h-24 overflow-visible transition-all duration-150 ${selected ? 'ring-4 ring-teal-400/20 border-neutral-500 shadow-md z-10' : 'border-neutral-300'}`}>
                         <CardContent className='flex items-center justify-center w-full h-full gap-2'>
-                            {input && (
-                                <CustomInputHandle
-                                    type="target"
-                                    position={Position.Left}
-                                    id="a"
-                                    isConnectable={true}
-                                />
-                            )}
+                            <Icon className={`size-10 ${iconClassName || ''}`} />
 
-                            <Icon className={`size-8 ${iconClassName}`} />
+                            {/* Handler */}
+                            <CustomOutputHandle
+                                type="source"
+                                position={Position.Right}
+                                id="a"
+                                isConnectable={true}
+                            />
 
-                            {outputs ? (
-                                outputs.map((out) => (
-                                    <CustomOutputHandle
-                                        key={out.id}
-                                        type="source"
-                                        position={Position.Right}
-                                        id={out.id}
-                                        isConnectable={true}
-                                        className={out.className}
-                                        style={out.style}
-                                    />
-                                ))
-                            ) : (
-                                output && (
-                                    <CustomOutputHandle
-                                        type="source"
-                                        position={Position.Right}
-                                        id="b"
-                                        isConnectable={true}
-                                    />
-                                )
-                            )}
-
-                            {outputs && outputs.map((out) => (
-                                out.label && (
-                                    <span
-                                        key={`label-${out.id}`}
-                                        className={cn("absolute right-2.5 text-[10px] font-bold select-none pointer-events-none", out.labelClassName)}
-                                        style={{
-                                            top: out.style?.top,
-                                            transform: 'translateY(-50%)',
-                                        }}
-                                    >
-                                        {out.label}
-                                    </span>
-                                )
-                            ))}
-
-                            <span className='text-xs leading-tight text-neutral-400 absolute top-26 left-0 w-full max-w-28 flex justify-center text-center'>
+                            <span className='text-xs leading-tight text-neutral-400 absolute top-26 left-0 w-full max-w-24 flex justify-center text-center'>
                                 {data?.label || label}
                             </span>
                         </CardContent>
@@ -226,30 +172,30 @@ const WorkflowNode = ({
                 </ContextMenuTrigger>
 
                 <ContextMenuContent className="w-56">
-                    <ContextMenuItem onSelect={data?.onOpen} onClick={data?.onOpen}>
+                    <ContextMenuItem disabled={data?.hasMultipleSelection} onSelect={data?.onOpen} onClick={data?.onOpen}>
                         Open
                         <ContextMenuShortcut>Enter</ContextMenuShortcut>
                     </ContextMenuItem>
-                    <ContextMenuItem onSelect={data?.onExecuteStep} onClick={data?.onExecuteStep}>
+                    <ContextMenuItem disabled={data?.hasMultipleSelection} onSelect={data?.onExecuteStep} onClick={data?.onExecuteStep}>
                         Execute step
                         <ContextMenuShortcut>Ctrl + R</ContextMenuShortcut>
                     </ContextMenuItem>
-                    <ContextMenuItem onSelect={data?.onRename} onClick={data?.onRename}>
+                    <ContextMenuItem disabled={data?.hasMultipleSelection} onSelect={data?.onRename} onClick={data?.onRename}>
                         Rename
                         <ContextMenuShortcut>Space</ContextMenuShortcut>
                     </ContextMenuItem>
                     <ContextMenuItem onSelect={data?.onCopy} onClick={data?.onCopy}>
-                        Copy
+                        {data?.hasMultipleSelection ? "Copy selection" : "Copy"}
                         <ContextMenuShortcut>Ctrl + c</ContextMenuShortcut>
                     </ContextMenuItem>
                     <ContextMenuItem onSelect={data?.onDuplicate} onClick={data?.onDuplicate}>
-                        Duplicate
+                        {data?.hasMultipleSelection ? "Duplicate selection" : "Duplicate"}
                         <ContextMenuShortcut>Ctrl + d</ContextMenuShortcut>
                     </ContextMenuItem>
-                    <ContextMenuItem disabled={!input || !data?.clipboardNodeExists} onSelect={data?.onPasteBefore} onClick={data?.onPasteBefore}>
+                    <ContextMenuItem disabled={true} onSelect={data?.onPasteBefore} onClick={data?.onPasteBefore}>
                         Paste before
                     </ContextMenuItem>
-                    <ContextMenuItem disabled={(!output && !outputs) || !data?.clipboardNodeExists} onSelect={data?.onPasteAfter} onClick={data?.onPasteAfter}>
+                    <ContextMenuItem disabled={!data?.clipboardNodeExists} onSelect={data?.onPasteAfter} onClick={data?.onPasteAfter}>
                         Paste after
                     </ContextMenuItem>
                     <ContextMenuSeparator />
@@ -263,7 +209,7 @@ const WorkflowNode = ({
                     </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem variant="destructive" onSelect={data?.onDelete} onClick={data?.onDelete}>
-                        Delete
+                        {data?.hasMultipleSelection ? "Delete selection" : "Delete"}
                         <ContextMenuShortcut>Del</ContextMenuShortcut>
                     </ContextMenuItem>
                 </ContextMenuContent>
@@ -274,47 +220,18 @@ const WorkflowNode = ({
                     <div className='pointer-events-none h-px w-10 bg-neutral-300' />
                     <div className='group relative size-5'>
                         <button
-                            className='!pointer-events-auto -left-2.5 !top-3 !m-0 !flex !size-5 !translate-x-0 !translate-y-0 !items-center !justify-center !rounded-sm !border-0 !bg-neutral-200 hover:bg-teal-100 transition hover:!bg-neutral-300'
+                            className='!pointer-events-auto -left-2.5 !top-3 !m-0 !flex !size-5 !translate-x-0 !translate-y-0 !items-center !justify-center !rounded-sm !border-0 !bg-neutral-200 hover:bg-neutral-300 transition'
                             onClick={(event: ReactMouseEvent) => {
                                 event.stopPropagation();
                                 if (id) data?.onAddNext?.(id);
                             }}
                         />
-                        <PlusIcon className='pointer-events-none absolute left-2.5 top-2.5 z-30 size-3 -translate-x-1/2 -translate-y-1/2 text-neutral-400 group-hover:text-teal-600 group-hover:bg-teal-100 transition group-hover:!bg-neutral-300 group-hover:!text-neutral-800' />
+                        <PlusIcon className='pointer-events-none absolute left-2.5 top-2.5 z-30 size-3 -translate-x-1/2 -translate-y-1/2 text-neutral-400 group-hover:text-neutral-600 transition' />
                     </div>
                 </div>
             )}
-
-            {outputs && outputs.map((out) => {
-                const isConnected = data?.connectedSourceHandles?.includes(out.id);
-                const showPointer = !isConnected;
-                const isConnectingFromThisPointer = data?.connectingSourceNodeId === id && data?.connectingSourceHandleId === out.id;
-
-                return showPointer && (
-                    <div
-                        key={`pointer-${out.id}`}
-                        className={`nodrag nopan pointer-events-none absolute left-full z-20 flex items-center pl-3 transition-opacity duration-200 ${isConnectingFromThisPointer ? 'opacity-0' : 'opacity-100'}`}
-                        style={{
-                            top: out.style?.top,
-                            transform: 'translateY(-50%)',
-                        }}
-                    >
-                        <div className='pointer-events-none h-px w-10 bg-neutral-300' />
-                        <div className='group relative size-5'>
-                            <button
-                                className='!pointer-events-auto -left-2.5 !top-3 !m-0 !flex !size-5 !translate-x-0 !translate-y-0 !items-center !justify-center !rounded-sm !border-0 !bg-neutral-200 hover:bg-teal-100 transition hover:!bg-neutral-300'
-                                onClick={(event: ReactMouseEvent) => {
-                                    event.stopPropagation();
-                                    if (id) data?.onAddNext?.(id, out.id);
-                                }}
-                            />
-                            <PlusIcon className='pointer-events-none absolute left-2.5 top-2.5 z-30 size-3 -translate-x-1/2 -translate-y-1/2 text-neutral-400 group-hover:text-teal-600 group-hover:bg-teal-100 transition group-hover:!bg-neutral-300 group-hover:!text-neutral-800' />
-                        </div>
-                    </div>
-                );
-            })}
         </div>
     );
 };
 
-export default WorkflowNode;
+export default memo(TriggerNode);

@@ -52,7 +52,7 @@ function Flows() {
         try {
             const defaultName = `Flow #${flows.length + 1}`;
             const id = await invoke<string>("create_flow", { name: defaultName });
-            navigate({ to: "/flow", search: { id } });
+            navigate({ to: "/dashboard/flow", search: { id } });
         } catch (err) {
             console.error("Failed to create flow:", err);
         }
@@ -172,7 +172,7 @@ function Flows() {
                                                 </Button>} />
                                                 <DropdownMenuContent align="center">
                                                     <DropdownMenuGroup>
-                                                        <DropdownMenuItem onClick={() => navigate({ to: "/flow", search: { id: flow.id } })}>
+                                                        <DropdownMenuItem onClick={() => navigate({ to: "/dashboard/flow", search: { id: flow.id } })}>
                                                             Open
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem 

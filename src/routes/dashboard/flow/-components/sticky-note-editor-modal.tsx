@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../../components/ui/dialog";
-import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
-import { Field, FieldLabel } from "../../../components/ui/field";
-import { Textarea } from "../../../components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../../../components/ui/dialog";
+import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
+import { Field, FieldLabel } from "../../../../components/ui/field";
+import { Textarea } from "../../../../components/ui/textarea";
 import { FileText } from "lucide-react";
 
 interface StickyNoteEditorModalProps {

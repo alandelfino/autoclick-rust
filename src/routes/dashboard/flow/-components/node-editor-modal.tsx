@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../../components/ui/dialog";
-import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
-import { Field, FieldLabel, FieldDescription } from "../../../components/ui/field";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
-import { Textarea } from "../../../components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../../../components/ui/dialog";
+import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
+import { Field, FieldLabel, FieldDescription } from "../../../../components/ui/field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
+import { Textarea } from "../../../../components/ui/textarea";
 import { invoke } from "@tauri-apps/api/core";
 import { Play } from "lucide-react";
-import { useToast } from "../../../hooks/use-toast";
+import { useToast } from "../../../../hooks/use-toast";
 
 
 interface NodeEditorModalProps {
